@@ -1110,7 +1110,6 @@ y-points (координаты Y).
 
   <<structs>>
 
-
   (let ((tasks (make-array 100 :fill-pointer 0))
         (last? nil))
     (dotimes (i 100)
@@ -1126,18 +1125,13 @@ y-points (координаты Y).
           ;;   (format t "~% make-task tasks length ~A " (length tasks))
           (destructuring-bind (height-down width-down &optional colors-down)
               (array-dimensions image-down)
-            (let* ((new-task (aref tasks (fill-pointer tasks)))
-                   (y-points <<make_y_points>>
-                   ))
-
-              ;; Здесь должен быть
-              ;; (make-task :y-points ...
-              ;; вместо невразумтельного setf
-              (setf (task-y-points new-task) y-points
-                    (task-image-up new-task) image-up
-                    (task-image-down new-task) image-down
-                    (task-image-up-path new-task) image-up-path
-                    (task-image-down-path new-task) image-down-path)
+            (let* ((y-points <<make_y_points>>
+                     )
+                   (new-task (make-task :y-points y-points
+                                        :image-up image-up
+                                        :image-down image-down
+                                        :image-up-path image-up-path
+                                        :image-down-path image-down-path)))
               ;;(format t "~% new-task ~A" new-task)
               (vector-push new-task tasks))))
 
