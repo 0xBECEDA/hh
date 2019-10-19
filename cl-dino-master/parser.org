@@ -1038,9 +1038,6 @@ image-down, это сделано для удобвства отладки.
 #+NAME: structs
 #+BEGIN_SRC lisp :noweb yes
 
-(defstruct task
-  (y-points '()) (image-up nil) (image-down nil)
-  (image-up-path nil) (image-down-path nil))
 
 (defstruct result
   black
@@ -1063,38 +1060,50 @@ image-down, это сделано для удобвства отладки.
 #+BEGIN_SRC lisp :noweb yes
   (in-package  #:cl-autogui)
 
-<<structs>>
+  <<structs>>
 
-  (let ((tasks (make-array 100 :fill-pointer 0))
-      (last? nil))
-  (dotimes (i 100)
-    (setf (aref tasks i) (make-task)))
-  (let ((results (make-array 100 :fill-pointer 0)))
+  (defstruct task
+    (y-points '())         ;; Не понимаю зачем?
+    (image-up nil)
+    (image-down nil)
+    (image-up-path nil)
+    (image-down-path nil))
+
+
+  (let ((tasks (make-array 100 :fill-pointer 0)) ;; зачем создавать здесь массив структур
+        ;; с указателем заполнения, если можно было бы обойтись списком?
+        (last? nil))
     (dotimes (i 100)
-      (setf (aref results i) (make-result)))
-    (let ((append-results (make-array 100 :fill-pointer 0)))
+      (setf (aref tasks i) (make-task)))
+    (let ((results (make-array 100 :fill-pointer 0)))
       (dotimes (i 100)
-        (setf (aref append-results i) (make-append-results)))
+        (setf (aref results i) (make-result)))
+      (let ((append-results (make-array 100 :fill-pointer 0)))
+        (dotimes (i 100)
+          (setf (aref append-results i) (make-append-results)))
+        ;; не make-tasks а create-task (и исправить везде где вызывается)
+        (defun make-tasks (image-up image-down &optional image-up-path image-down-path)
+          ;;   (format t "~% make-task tasks length ~A " (length tasks))
+          (destructuring-bind (height-down width-down &optional colors-down)
+              (array-dimensions image-down)
+            (let* ((new-task (aref tasks (fill-pointer tasks)))
+                   (y-points))
+              (do ((y-point 0 (incf y-point)))
+                  ((= y-point height-down))
+                (setf y-points (cons y-point y-points)))
+              ;; Здесь должен быть
+              ;; (make-task :y-points ...
+              ;; вместо невразумтельного setf
+              (setf (task-y-points new-task) y-points
+                    (task-image-up new-task) image-up
+                    (task-image-down new-task) image-down
+                    (task-image-up-path new-task) image-up-path
+                    (task-image-down-path new-task) image-down-path)
+              ;;(format t "~% new-task ~A" new-task)
+              (vector-push new-task tasks))))
 
-      (defun make-tasks (image-up image-down &optional image-up-path image-down-path)
-        ;;   (format t "~% make-task tasks length ~A " (length tasks))
-        (destructuring-bind (height-down width-down &optional colors-down)
-            (array-dimensions image-down)
-          (let* ((new-task (aref tasks (fill-pointer tasks)))
-                 (y-points))
-            (do ((y-point 0 (incf y-point)))
-                ((= y-point height-down))
-              (setf y-points (cons y-point y-points)))
-            (setf (task-y-points new-task) y-points
-                  (task-image-up new-task) image-up
-                  (task-image-down new-task) image-down
-                  (task-image-up-path new-task) image-up-path
-                  (task-image-down-path new-task) image-down-path)
-            ;;(format t "~% new-task ~A" new-task)
-            (vector-push new-task tasks))))
-
-    <<get_data>>
-    <<find-best>>
+        <<get_data>>
+        <<find-best>>
 #+END_SRC
 
 А теперь все это соберем.
