@@ -267,7 +267,7 @@
     result))
 
 ;; (in-package  #:cl-autogui)
-;; 
+;;
 ;; (block save-load-binarixation-test
 ;;   (x-snapshot :x 440 :width  *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -277,7 +277,7 @@
 ;;         (array-dimensions image)
 ;;       (save-png dw dh "~/Pictures/test-bin.png"
 ;;                image  :grayscale))))
-;; 
+;;
 ;; (block save-load-full-color-test
 ;;   (x-snapshot :x 440 :width *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -298,7 +298,7 @@
 (defun x-move (x y)
   (if (and (integerp x) (integerp y))
       (with-default-display-force (d)
-        (xlib/xtest:fake-motion-event d x y))
+        (xtest:fake-motion-event d x y))
       (error "Integer only for position, (x: ~S, y: ~S)" x y)))
 
 (defun mklist (obj)
@@ -367,11 +367,11 @@
 (defun perform-mouse-action (press? button &key x y)
   (and x y (x-move x y))
   (with-default-display-force (d)
-    (xlib/xtest:fake-button-event d button press?)))
+    (xtest:fake-button-event d button press?)))
 
 (defun perform-key-action (press? keycode) ; use xev to get keycode
   (with-default-display-force (d)
-    (xlib/xtest:fake-key-event d keycode press?)))
+    (xtest:fake-key-event d keycode press?)))
 
   ;; (block perform-key-action-test
   ;;   (perform-key-action t 116)
@@ -568,7 +568,7 @@
   ;;          (save-png width height "~/Pictures/area.png" app-arr :grayscale))))))
 
   (in-package  #:cl-autogui)
-  
+
   (defun append-image (image-up image-down y-point)
     (destructuring-bind (height-down width-down &optional colors-down)
         (array-dimensions image-down)
@@ -615,7 +615,7 @@
                          (setf (aref image-new new-y qx rz)
                                (aref image-down qy qx rz)))))))
         image-new)))
-  
+
   ;; (block test-append-image-fullcolor
   ;;   (let* ((arr1 (x-snapshot :x 0 :y 0 :width 755 :height 300))
   ;;          (arr2 (x-snapshot :x 100 :y 100 :width 755 :height 300))
@@ -623,8 +623,8 @@
   ;;     (destructuring-bind (height width  &rest rest)
   ;;         (array-dimensions array)
   ;;       (save-png width height "~/Pictures/result.png" array))))
-  
-  
+
+
   ;; (block test-append-image-grayscale
   ;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
   ;;          (arr2 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
@@ -632,7 +632,7 @@
   ;;     (destructuring-bind (height width  &rest rest)
   ;;         (array-dimensions array)
   ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
-  
+
     (in-package  #:cl-autogui)
   (defun analysis (xored-image y-point &optional (border 50))
     "Принимает отксоренное изображение и y-координату  наложения,
@@ -687,7 +687,7 @@
               ;;(format t " ~% black ~A y-point ~A pixamount ~A" black y-point pix-amount)
               ;; возвращаем кол-во черных пикселей в процентном выражении
               result)))))
-  
+
     ;; (block analysis-test
     ;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
     ;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
@@ -696,32 +696,37 @@
     ;;                          array 200 80)
     ;;                         200)))
     ;;     (format t " ~% results ~A" results)))
-  
+
 
 
 
 
   (in-package  #:cl-autogui)
 
-    (in-package  #:cl-autogui)
-  
-  
-  (defstruct task
-    (y-points '()) (image-up nil) (image-down nil)
-    (image-up-path nil) (image-down-path nil))
-  
+  (in-package  #:cl-autogui)
+
+
+
   (defstruct result
     black
     white
     y-point
     image-up image-down)
-  
+
   (defstruct append-results
     append-image)
-  
-  
-  
-    (let ((tasks (make-array 100 :fill-pointer 0))
+
+
+
+  (defstruct task
+    (y-points '())
+    (image-up nil)
+    (image-down nil)
+    (image-up-path nil)
+    (image-down-path nil))
+
+
+  (let ((tasks (make-array 100 :fill-pointer 0))
         (last? nil))
     (dotimes (i 100)
       (setf (aref tasks i) (make-task)))
@@ -731,8 +736,8 @@
       (let ((append-results (make-array 100 :fill-pointer 0)))
         (dotimes (i 100)
           (setf (aref append-results i) (make-append-results)))
-  
-        (defun make-tasks (image-up image-down &optional image-up-path image-down-path)
+
+        (defun create-task (image-up image-down &optional image-up-path image-down-path)
           ;;   (format t "~% make-task tasks length ~A " (length tasks))
           (destructuring-bind (height-down width-down &optional colors-down)
               (array-dimensions image-down)
@@ -741,6 +746,9 @@
               (do ((y-point 0 (incf y-point)))
                   ((= y-point height-down))
                 (setf y-points (cons y-point y-points)))
+              ;; Здесь должен быть
+              ;; (make-task :y-points ...
+              ;; вместо невразумтельного setf
               (setf (task-y-points new-task) y-points
                     (task-image-up new-task) image-up
                     (task-image-down new-task) image-down
@@ -748,93 +756,93 @@
                     (task-image-down-path new-task) image-down-path)
               ;;(format t "~% new-task ~A" new-task)
               (vector-push new-task tasks))))
-  
+
+          (in-package  #:cl-autogui)
+
+
+        (defun get-data-ofline (image-up image-down)
+              (format t "~% get-data-ofline")
+                (create-task (binarization (load-png image-up))
+                           (binarization (load-png image-down))))
+
+
+            (defun get-data (image-up-path image-down-path)
+                ;; если тасков нет, а занчит, нет и пары изображений
+                (format t "~% get-data: image-up ~A image-down ~A" image-up-path image-down-path)
+                ;;(if (eql (fill-pointer tasks) 0)
+                    ;; сделать скриншот
+                    (let ((image-up
+                           (binarization
+                            (x-snapshot :x 440 :y 100
+                                        :width *snap-width* :height *snap-height*))))
+                      ;; провертим экран вниз
+                      (perform-key-action t 117)
+                      (sleep .1)
+                      (perform-key-action nil 117)
+                      (sleep .5)
+                      ;; сделать второй скриншот
+                      (let ((image-down
+                             (binarization (x-snapshot :x 440 :y 100 :width *snap-width*
+                                                       :height *snap-height*))))
+                        ;; сделать таск для них
+                        (create-task image-up image-down image-up-path image-down-path)
+                        ;; сохранить их
+                        (destructuring-bind (height-down width-down)
+                            (array-dimensions image-down)
+                          (save-png width-down height-down image-down-path image-down :grayscale))
+                        (destructuring-bind (height-up width-up)
+                            (array-dimensions image-up)
+                          (save-png width-up height-up image-up-path image-up :grayscale))))
+                    ;; else
+                    ;;(progn
+                      ;; провертим экран вниз
+                      (perform-key-action t 117)
+                      (sleep .1)
+                      (perform-key-action nil 117)
+                      (sleep .5))
+
         (in-package  #:cl-autogui)
-      
-      
-      (defun get-data-ofline (image-up image-down)
-            (format t "~% get-data-ofline")
-              (make-tasks (binarization (load-png image-up))
-                         (binarization (load-png image-down))))
-      
-      
-          (defun get-data (image-up-path image-down-path)
-              ;; если тасков нет, а занчит, нет и пары изображений
-              (format t "~% get-data: image-up ~A image-down ~A" image-up-path image-down-path)
-              ;;(if (eql (fill-pointer tasks) 0)
-                  ;; сделать скриншот
-                  (let ((image-up
-                         (binarization
-                          (x-snapshot :x 440 :y 100
-                                      :width *snap-width* :height *snap-height*))))
-                    ;; провертим экран вниз
-                    (perform-key-action t 117)
-                    (sleep .1)
-                    (perform-key-action nil 117)
-                    (sleep .5)
-                    ;; сделать второй скриншот
-                    (let ((image-down
-                           (binarization (x-snapshot :x 440 :y 100 :width *snap-width*
-                                                     :height *snap-height*))))
-                      ;; сделать таск для них
-                      (make-tasks image-up image-down image-up-path image-down-path)
-                      ;; сохранить их
-                      (destructuring-bind (height-down width-down)
-                          (array-dimensions image-down)
-                        (save-png width-down height-down image-down-path image-down :grayscale))
-                      (destructuring-bind (height-up width-up)
-                          (array-dimensions image-up)
-                        (save-png width-up height-up image-up-path image-up :grayscale))))
-                  ;; else
-                  ;;(progn
-                    ;; провертим экран вниз
-                    (perform-key-action t 117)
-                    (sleep .1)
-                    (perform-key-action nil 117)
-                    (sleep .5))
-      
-      (in-package  #:cl-autogui)
-      
-      (defun find-best (thread-results)
-            ;; получаем все результаты от потока
-            ;; сортируем
-            (let* ((sorted-result
-                    (sort thread-results
-                          #'(lambda (a b)
-                              (> (car (car a)) (car (car b)))))
-                     ;; (sort thread-results
-                     ;;       #'(lambda (a b)
-                     ;;           (> (cdr (car a)) (cdr (car b)))))
-                     )
-                   ;; берем лучший из отсортированных
-                   (best-res (nth 0 sorted-result))
-                   (i 0))
-              (tagbody
-               top
-                 (let ((black-best (car (car best-res)))
-                       (cur-black (car (car (nth i sorted-result))))
-                       (cur-y (cdr (nth i sorted-result))))
-                   ;; если кол-во черных точек в результатах одинаковое
-                   (if (eql black-best cur-black)
-                       (progn
-                         (setf best-res (nth i sorted-result))
-                         ;; и при этом y-point = 0
-                         (if (eql cur-y 0)
-                             ;; мы нашли последнюю пару картинок
-                             (progn
-                               (setf last? t)
-                               (return-from
-                                find-best (nth i sorted-result)))
-                             ;; y-point != 0
-                             (progn
-                               ;; проверяем дальше
-                               (incf i)
-                               (go top))))
-                       ;; кол-во черных точек в результатаз не одинаковое
-                       (return-from
-                        find-best best-res))))))
-      
-  
+
+        (defun find-best (thread-results)
+              ;; получаем все результаты от потока
+              ;; сортируем
+              (let* ((sorted-result
+                      (sort thread-results
+                            #'(lambda (a b)
+                                (> (car (car a)) (car (car b)))))
+                       ;; (sort thread-results
+                       ;;       #'(lambda (a b)
+                       ;;           (> (cdr (car a)) (cdr (car b)))))
+                       )
+                     ;; берем лучший из отсортированных
+                     (best-res (nth 0 sorted-result))
+                     (i 0))
+                (tagbody
+                 top
+                   (let ((black-best (car (car best-res)))
+                         (cur-black (car (car (nth i sorted-result))))
+                         (cur-y (cdr (nth i sorted-result))))
+                     ;; если кол-во черных точек в результатах одинаковое
+                     (if (eql black-best cur-black)
+                         (progn
+                           (setf best-res (nth i sorted-result))
+                           ;; и при этом y-point = 0
+                           (if (eql cur-y 0)
+                               ;; мы нашли последнюю пару картинок
+                               (progn
+                                 (setf last? t)
+                                 (return-from
+                                  find-best (nth i sorted-result)))
+                               ;; y-point != 0
+                               (progn
+                                 ;; проверяем дальше
+                                 (incf i)
+                                 (go top))))
+                         ;; кол-во черных точек в результатаз не одинаковое
+                         (return-from
+                          find-best best-res))))))
+
+
   (defun make-threads (num-of-cores)
     (let* ((lock (bt:make-lock))
            (thread-names))
@@ -879,7 +887,7 @@
                                 ;; (format out "~% y-point ~A ~% name ~A
                                 ;;                ~% image-up ~A ~% image-down ~A"
                                 ;;         (car cur-task) name image-up image-down)
-  
+
                                 ;; начинаем анализ
                                 (destructuring-bind (height-up width-up)
                                     (array-dimensions image-up)
@@ -929,7 +937,7 @@
                                             ;;                    ~% amount ~A
                                             ;;                     %---"
                                             ;;         y-point name amount)
-  
+
                                             ;; если какой-то результат получен,
                                             (if amount
                                                 ;; записываем в в текущий пулл результатов
@@ -951,7 +959,7 @@
                                 (let* ((best-res (find-best cur-results))
                                        (new-result (aref results
                                                          (fill-pointer results))))
-  
+
                                   (format out "~% sorted-result ~A" best-res)
                                   (setf (result-white new-result) (cdr (car best-res))
                                         (result-black new-result) (car (car best-res))
@@ -996,8 +1004,8 @@
                  (sleep .5)
                  ;;(format t "~% wait")
                  (go  check-threads)))))))
-  
-  
+
+
     (in-package  #:cl-autogui)
   (defun make-roll (num-of-cores)
           (tagbody
@@ -1056,7 +1064,7 @@
                                          (setf image-down (vector-pop append-results))
                                          (setf image-up (vector-pop append-results))
                                          (setf flag 1)
-                                         (make-tasks image-up image-down)
+                                         (create-task image-up image-down)
                                          (do ((i 0 (incf i)))
                                              (( = i (fill-pointer tasks)))
                                            (let ((fuck (aref tasks i)))
@@ -1070,7 +1078,7 @@
                                                          height-down width-down
                                                          height-up width-up))))
                                            )
-  
+
                                          ;; склеенные картинки кончились?
                                          (if (not (eql (fill-pointer append-results) 0))
                                              ;; нет
@@ -1087,7 +1095,7 @@
                                                                 (fill-pointer
                                                                  append-results)))
                                          (setf image-up (vector-pop append-results))
-                                         (make-tasks image-up image-down)
+                                         (create-task image-up image-down)
                                          (do ((i 0 (incf i)))
                                              (( = i (fill-pointer tasks)))
                                            (let ((fuck (aref tasks i)))
@@ -1101,7 +1109,7 @@
                                                          height-down width-down
                                                          height-up width-up))))
                                            )
-  
+
                                          ;; склеенные картинки кончились?
                                          (if (not (eql (fill-pointer append-results) 0))
                                              ;; нет
@@ -1114,8 +1122,8 @@
                                                        (fill-pointer results))
                                                (go top))))))))))))
              ))
-  
-  
+
+
   (let ((cnt 0))
     (defun make-roll-test ()
       (format t "~% make-roll: amount of results ~A"
@@ -1139,7 +1147,7 @@
                                ~% height-up ~A width-up ~A
                                ~% --------------------"
                        height-down width-down height-up width-up)))
-  
+
            (let ((appended-image
                   (append-image image-up image-down y-point)))
              (destructuring-bind (height width)
@@ -1150,14 +1158,14 @@
              (incf cnt)
              ;; пушим результаты склейки
              (vector-push appended-image append-results))
-  
+
            ;; результаты аналза кончились?
            ;; (if (not (eql (fill-pointer results) 0))
            (if (not (eql cnt (fill-pointer results)))
                ;; нет!
                (go append-images)
                t)))))
-  
+
 
     (defun get-area-merge-results (num-of-cores)
       (let* ((lock (bt:make-lock))
@@ -1346,7 +1354,7 @@
 )
 
           (in-package  #:cl-autogui)
-  
+
           ;; после того, как создали все потоки и записали их имена,
           ;; скриним экран
           (tagbody
@@ -1359,8 +1367,8 @@
                                "~~/Pictures/screen~A.png"
                                (incf screen-cnt)))
              (incf screen-cnt)
-  
-             (sleep 10)
+
+             (sleep 8)
              (format t "~% length results ~A" (fill-pointer results))
              ;;(format t "~% length tasks ~A" (fill-pointer tasks))
              ;;(format t "~% length results ~A" (car results))
@@ -1374,7 +1382,7 @@
                        (format t "~% y ~A black ~A"
                                (result-y-point struct)
                                (result-black struct))))
-  
+
                    (if last?
                        (progn
                          ;; (format t "~% length results ~A" (car results))
@@ -1425,7 +1433,7 @@
               ;;                           "~~/Pictures/screen~A.png"
               ;;                           (incf screen-cnt)))
               ;; (incf screen-cnt)
-       
+
               (get-data (format nil
                                 "~~/Pictures/screen~A.png"
                                 screen-cnt)
@@ -1433,7 +1441,7 @@
                                 "~~/Pictures/screen~A.png"
                                 (incf screen-cnt)))
               (incf screen-cnt)
-       
+
               ;; делаем таски для 3 картинок
               (if (< screen-cnt 8)
                   (go top)
@@ -1471,7 +1479,7 @@
                                (new-result (aref results
                                                  (fill-pointer results))))
                           ;; (format t "~% i: ~A best-result ~A" i best-res)
-       
+
                           (setf (result-white new-result) (cdr (car best-res))
                                 (result-black new-result) (car (car best-res))
                                 (result-y-point new-result) (cdr best-res)
@@ -1479,30 +1487,31 @@
                                 (task-image-up cur-task)
                                 (result-image-down new-result)
                                 (task-image-down cur-task))
-       
+
                           ;; записываем лучший результат
                           (vector-push new-result results)
                           (setf cur-results nil)
                           ))
                       (make-roll-test)
                       ))))))
-       
+
       ))
-  (in-package  #:cl-autogui)
-  
-  ;; (time
-  ;; (block make-task-test
-  ;;    (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-  ;;    (sleep 8)
-  ;;    (let ((result (get-area-merge-results 4)))
-  ;;    )))
-  
+
+(in-package  #:cl-autogui)
+
+  (time
+  (block make-task-test
+     (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
+     (sleep 8)
+     (let ((result (get-area-merge-results 4)))
+     )))
+
   ;; (time
   ;;  (block ofline-demo-test
   ;;    (demo-get-area-merge-results)))
-  
-  ;; (time
-  ;;  (block online-demo-test
-  ;;    (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-  ;;    (sleep 8)
-  ;;    (demo-get-area-merge-results)))
+
+  (time
+   (block online-demo-test
+     (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
+     (sleep 8)
+     (demo-get-area-merge-results)))

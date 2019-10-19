@@ -1013,7 +1013,7 @@ get-data обеспечивает получение скринов с экра�
                      (binarization (x-snapshot :x 440 :y 100 :width *snap-width*
                                                :height *snap-height*))))
                 ;; сделать таск для них
-                (make-tasks image-up image-down image-up-path image-down-path)
+                (create-task image-up image-down image-up-path image-down-path)
                 ;; сохранить их
                 (destructuring-bind (height-down width-down)
                     (array-dimensions image-down)
@@ -1031,9 +1031,18 @@ get-data обеспечивает получение скринов с экра�
 
 #+END_SRC
 
-Для удобства хранения результатов и тасков создадим для них структуры.
-В структуре task добавилась возможность записать пути картинок для image-up и
-image-down, это сделано для удобвства отладки.
+Для упрощения отладки результаты и таски будут представлены структурами. А храниться
+они будут в пуллах, т.к. в массивах с fill-pointer-ом.
+
+Структура results включает в себя:
+% четрых точек
+% белых точек
+y-point, на котором данный результат был получен
+image-up - массив изображения image-up
+image-down - массив изображения image-down
+
+Структура append-results включает в себя:
+массив склеенного изображения
 
 #+NAME: structs
 #+BEGIN_SRC lisp :noweb yes
@@ -1051,8 +1060,20 @@ image-down, это сделано для удобвства отладки.
 
 #+END_SRC
 
-Это функция, которая сделает нам задания для 2х изображений.
-На выходе make-tasks запушит новую заполненную структуру в пулл тасков/
+Структура таска содержит в себе:
+список y-point-ов
+image-up - массив изображения image-up
+image-down - массив изображения image-down
+image-up-path - путь к изображению image-up
+image-down-path - путь к изображению image-down
+
+Пути добавлены для удобства отладки.
+
+create-task сделает нам задания для 2х изображений.
+Задание выглядит как заполненная структура task: массивы 2х изображений и точки
+y-points (координаты Y).
+
+На выходе create-task запушит новую заполненную структуру в пулл тасков
 Сначала создадим пулл результатов и тасков и установим флаг last? в nil. Если при
 анализе 2х изображений мы решим, что они одинаковые, флаг изменится на t
 
@@ -1063,15 +1084,14 @@ image-down, это сделано для удобвства отладки.
   <<structs>>
 
   (defstruct task
-    (y-points '())         ;; Не понимаю зачем?
+    (y-points '())
     (image-up nil)
     (image-down nil)
     (image-up-path nil)
     (image-down-path nil))
 
 
-  (let ((tasks (make-array 100 :fill-pointer 0)) ;; зачем создавать здесь массив структур
-        ;; с указателем заполнения, если можно было бы обойтись списком?
+  (let ((tasks (make-array 100 :fill-pointer 0))
         (last? nil))
     (dotimes (i 100)
       (setf (aref tasks i) (make-task)))
@@ -1081,8 +1101,8 @@ image-down, это сделано для удобвства отладки.
       (let ((append-results (make-array 100 :fill-pointer 0)))
         (dotimes (i 100)
           (setf (aref append-results i) (make-append-results)))
-        ;; не make-tasks а create-task (и исправить везде где вызывается)
-        (defun make-tasks (image-up image-down &optional image-up-path image-down-path)
+
+        (defun create-task (image-up image-down &optional image-up-path image-down-path)
           ;;   (format t "~% make-task tasks length ~A " (length tasks))
           (destructuring-bind (height-down width-down &optional colors-down)
               (array-dimensions image-down)
@@ -1607,7 +1627,7 @@ make-roll, которая должна (в теории... ) склеить вс
                                        (setf image-down (vector-pop append-results))
                                        (setf image-up (vector-pop append-results))
                                        (setf flag 1)
-                                       (make-tasks image-up image-down)
+                                       (create-task image-up image-down)
                                        (do ((i 0 (incf i)))
                                            (( = i (fill-pointer tasks)))
                                          (let ((fuck (aref tasks i)))
@@ -1638,7 +1658,7 @@ make-roll, которая должна (в теории... ) склеить вс
                                                               (fill-pointer
                                                                append-results)))
                                        (setf image-up (vector-pop append-results))
-                                       (make-tasks image-up image-down)
+                                       (create-task image-up image-down)
                                        (do ((i 0 (incf i)))
                                            (( = i (fill-pointer tasks)))
                                          (let ((fuck (aref tasks i)))
@@ -1866,7 +1886,7 @@ make-roll, которая должна (в теории... ) склеить вс
 
 (defun get-data-ofline (image-up image-down)
       (format t "~% get-data-ofline")
-        (make-tasks (binarization (load-png image-up))
+        (create-task (binarization (load-png image-up))
                    (binarization (load-png image-down))))
 
 #+END_SRC
@@ -2051,7 +2071,7 @@ _______________________________________________________________________________
 
 склеить картинку
 если длина results != 1, т.е мы не получили цнлый рулон картинку
-(make-tasks)
+(create-task)
 ~top~
 results = tasks
 очистить results
