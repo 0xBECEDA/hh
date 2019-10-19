@@ -1090,7 +1090,7 @@ image-down - массив изображения image-down
 (defstruct append-results
   append-image)
 
-
+<<the_task>>
 #+END_SRC
 
 
