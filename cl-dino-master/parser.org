@@ -1104,7 +1104,7 @@ y-points (координаты Y).
 Сначала создадим пулл результатов и тасков и установим флаг last? в nil. Если при
 анализе 2х изображений мы решим, что они одинаковые, флаг изменится на t
 
-#+NAME: make_tasks
+#+NAME: create_tasks
 #+BEGIN_SRC lisp :noweb yes
   (in-package  #:cl-autogui)
 
@@ -1125,9 +1125,7 @@ y-points (координаты Y).
           ;;   (format t "~% make-task tasks length ~A " (length tasks))
           (destructuring-bind (height-down width-down &optional colors-down)
               (array-dimensions image-down)
-            (let* ((y-points <<make_y_points>>
-                     )
-                   (new-task (make-task :y-points y-points
+            (let* ((new-task (make-task :y-points <<make_y_points>>
                                         :image-up image-up
                                         :image-down image-down
                                         :image-up-path image-up-path
@@ -1137,6 +1135,12 @@ y-points (координаты Y).
 
         <<get_data>>
         <<find-best>>
+        <<get_area_merge_results>>
+
+)))
+
+ <<get_area_merge_results_tests>>
+
 #+END_SRC
 
 А теперь все это соберем.
@@ -1151,7 +1155,6 @@ y-points (координаты Y).
 
     (in-package  #:cl-autogui)
 
-    <<make_tasks>>
     <<make_roll>>
 
       (defun get-area-merge-results (num-of-cores)
@@ -1556,10 +1559,10 @@ make-roll, которая должна (в теории... ) склеить вс
                    )
                  )
              )
-          )))
-       <<demo_get_area_merge_results_tests>>
-      ))
-  <<get_area_merge_results_tests>>
+          ))
+
+  <<demo_get_area_merge_results_tests>>
+
 #+END_SRC
 
 Теперь сама склейка.
@@ -2117,5 +2120,5 @@ results = tasks
 
 <<append-xor>>
 
-<<get_area_merge_results>>
+<<create_tasks>>
 #+END_SRC
