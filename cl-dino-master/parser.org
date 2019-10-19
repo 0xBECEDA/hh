@@ -983,14 +983,36 @@ append-image принимает 2 массива с изображениями, 
 Для этого мы создадим пул тасков - заданий для потоков.
 
 Структура таска содержит в себе:
-- список ~y-point~-ов. Это список координат Y image-down, который нужен, чтоб
-  накладывать image-down на image-up построчно, пока изображения
-  image-down или image-up не кончатся. В случае вопросов по механизму наложения см
-  xor-area
+- список ~y-point~-ов. Это список координат ~Y~ изображения ~image-down~,
+  который нужен, чтоб накладывать ~image-down~ на ~image-up~ построчно,
+  пока изображения ~image-down~ или ~image-up~ не кончатся. В случае
+  вопросов по механизму наложения см ~xor-area~
 - image-up - массив изображения image-up
 - image-down - массив изображения image-down
 - image-up-path - путь к изображению image-up
 - image-down-path - путь к изображению image-down
+
+#+NAME: the_task
+#+BEGIN_SRC lisp :noweb yes
+  (defstruct task
+    (y-points '())
+    (image-up nil)
+    (image-down nil)
+    (image-up-path nil)
+    (image-down-path nil))
+#+END_SRC
+
+Мы формируем ~y-points~ следующим образом:
+
+#+NAME: make_y_points
+#+BEGIN_SRC lisp :noweb yes
+  (loop :for pnt :from 0 :to height-down :collect pnt)
+#+END_SRC
+
+где ~height-down~ - высота нижнего изображения. Почему, кстати нижнего? И
+почему мы идем от нуля а не в обратном порядке?
+
+
 
 Чтоб не открывать и закрывать
 потоки до бесконечности, создадим пулл из потоков (кол-во ядер - 1),
@@ -1091,13 +1113,6 @@ y-points (координаты Y).
 
   <<structs>>
 
-  (defstruct task
-    (y-points '())
-    (image-up nil)
-    (image-down nil)
-    (image-up-path nil)
-    (image-down-path nil))
-
 
   (let ((tasks (make-array 100 :fill-pointer 0))
         (last? nil))
@@ -1116,9 +1131,7 @@ y-points (координаты Y).
               (array-dimensions image-down)
             (let* ((new-task (aref tasks (fill-pointer tasks)))
                    (y-points))
-              (do ((y-point 0 (incf y-point)))
-                  ((= y-point height-down))
-                (setf y-points (cons y-point y-points)))
+              <<make_y_points>>
               ;; Здесь должен быть
               ;; (make-task :y-points ...
               ;; вместо невразумтельного setf
