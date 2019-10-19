@@ -1006,11 +1006,12 @@ append-image принимает 2 массива с изображениями, 
 
 #+NAME: make_y_points
 #+BEGIN_SRC lisp :noweb yes
-  (loop :for pnt :from 0 :to height-down :collect pnt)
+  (loop :for pnt :from height-down :downto 0 :collect pnt)
 #+END_SRC
 
-Поскольку image-down накладывается на image-up, то мы будем использовать именно
-координаты Y image-down. Они нам нужны снизу до верху.
+Поскольку ~image-down~ накладывается на ~image-up~, то мы будем
+использовать именно координаты ~Y~ изображния ~image-down~. Они нам нужны
+снизу-доверху.
 
 Чтоб не открывать и закрывать
 потоки до бесконечности, создадим пулл из потоков (кол-во ядер - 1),
@@ -1126,8 +1127,9 @@ y-points (координаты Y).
           (destructuring-bind (height-down width-down &optional colors-down)
               (array-dimensions image-down)
             (let* ((new-task (aref tasks (fill-pointer tasks)))
-                   (y-points))
-              <<make_y_points>>
+                   (y-points <<make_y_points>>
+                   ))
+
               ;; Здесь должен быть
               ;; (make-task :y-points ...
               ;; вместо невразумтельного setf
