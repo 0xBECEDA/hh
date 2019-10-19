@@ -1176,8 +1176,13 @@ y-points (координаты Y).
         (multiple-value-bind (name value)
             (intern (format nil "thread~A" i))
           (format t "~%  thread ~A" name)
-
           <<thread>>
+          ))
+      <<screen_and_waiting>>
+      ))
+
+  <<demo_get_area_merge_results_tests>>
+
 #+END_SRC
 
 Функция потока: параметров не принимет, внутри себя использует 2 общих для всех потоков
@@ -1418,10 +1423,7 @@ y-points (координаты Y).
                           ;; идем снова брать таск
                           (go top))))))))))
   ;; сохраняем имя потока
-  (setf thread-names (cons name thread-names)))
-  )
-
-  <<screen_and_waiting>>
+  (setf thread-names (cons name thread-names))
 #+END_SRC
 
 Как понять, что данная картинка последняя?
@@ -1588,9 +1590,6 @@ get-data скринит экран, сохраняет изображения и
            )
          )
      )
-  ))
-
-  <<demo_get_area_merge_results_tests>>
 
 #+END_SRC
 
