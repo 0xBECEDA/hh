@@ -1065,7 +1065,10 @@ get-data обеспечивает получение скринов с экра�
 #+END_SRC
 
 Для упрощения отладки результаты и таски будут представлены структурами. А храниться
-они будут в пуллах, т.к. в массивах с fill-pointer-ом.
+они будут в пуллах. Пуллы представлены очередью с двумя указателями:
+fill-pointer указывает на свободное место в пуле, а локальная переменная
+cnt - на свободные таски, т.е.таски, которые не захвачены ни одним потоком
+и их можно взять.
 
 Структура results включает в себя:
 % четрых точек
@@ -1173,14 +1176,16 @@ y-points (координаты Y).
   <<thread>>
 #+END_SRC
 
-Функция потока: параметров не принимет, внутри себя использует 2 общих ресурса:
-пулл тасков и общий пулл результатов (на данный момент есть третий общий ресурс:
-переменная cnt, с помощью которой я нумерную склеенные картинки, см ~вставка~)
+Функция потока: параметров не принимет, внутри себя использует 2 общих для всех потоков
+ресурса:
+пулл тасков
+общий пулл результатов
+переменная cnt, которая служит указателем на незанятые таски
 
 Алгоритм действия анализирующего потока:
 ~начало~
-- если есть таски, взять один (предыдущее изображение, последнее изображение, список
-y-point-ов)
+- если есть необработанные таски, взять один (предыдущее изображение,
+последнее изображение, список y-point-ов)
 - таск взят?
 НЕТ!
 - таски есть?
@@ -1240,18 +1245,26 @@ y-point-ов)
              (tagbody
               top
                 (format out "~% thread ~A" name)
-                ;;(format out "~%  f-p tasks ~A" (fill-pointer tasks))
+                (format out "~%  f-p tasks ~A" (fill-pointer tasks))
                 ;; если таск есть, заюираем немедленно
-                (let* ((cur-task (if (not (eql (fill-pointer tasks) 0))
+                (let* ((cur-task (if (> (fill-pointer tasks) cnt)
                                      (bt:with-lock-held (lock)
-                                       (vector-pop tasks)))))
+                                       (incf cnt)
+                                       (aref tasks (- cnt 1))))))
+
+                  ;; (format out "~% cnt ~A " cnt)
+                  (format out "~%  f-p tasks ~A" (fill-pointer tasks))
                   ;; ОЖИДАЕМ ТАСКИ
                   (if (null cur-task)
-                      (if (eql (fill-pointer tasks) 0)
+                      (if (or (> cnt (fill-pointer tasks))
+                              (eql cnt (fill-pointer tasks)))
                           (progn
                             (sleep 6)
                             ;; если тасков так и нет
-                            (if (eql (fill-pointer tasks) 0)
+                            (format out "~% wait for task")
+                            (if (or (> cnt (fill-pointer tasks))
+                                    (eql cnt
+                                         (fill-pointer tasks)))
                                 ;; выход
                                 nil
                                 ;; иначе идем забирать таск
@@ -1264,8 +1277,8 @@ y-point-ов)
                              (image-down)
                              (y-points)
                              (cur-results))
-                        ;; (format out "~% get-area f-p ~A "
-                        ;;         (fill-pointer tasks))
+                        (format out "~% get-area cnt ~A "
+                                cnt)
                         ;; получаем данные из таска
                         (setf image-up (make-bit-image
                                         (task-image-up cur-task))
@@ -1305,17 +1318,17 @@ y-point-ов)
                                   ;; если какой-то результат получен,
                                   (if amount
                                       (progn
-                                        (format out "~% ----
-                                                       ~% IN DO
-                                                       ~% y-point ~A ~% image-up ~A
-                                                       ~% image-down ~A
-                                                       ~% black. white ~A
-                                                        % ----"
-                                                y-point
-                                                (task-image-up-path cur-task)
-                                                (task-image-down-path
-                                                 cur-task)
-                                                amount)
+                                        ;; (format out "~% ----
+                                        ;;          ~% IN DO
+                                        ;;          ~% y-point ~A ~% image-up ~A
+                                        ;;          ~% image-down ~A
+                                        ;;          ~% black. white ~A
+                                        ;;           % ----"
+                                        ;;         y-point
+                                        ;;         (task-image-up-path cur-task)
+                                        ;;         (task-image-down-path
+                                        ;;          cur-task)
+                                        ;;         amount)
                                         (setf cur-results (cons
                                                            (cons amount
                                                                  y-point)
@@ -1336,17 +1349,17 @@ y-point-ов)
                                       ;; записываем в в текущий пулл результатов
                                       ;; (format out "~% amount ~A" amount)
                                       (progn
-                                        (format out "~% ----
-                                                       ~% IN DO
-                                                       ~% y-point ~A ~% image-up ~A
-                                                       ~% image-down ~A
-                                                       ~% black. white ~A
-                                                        % ----"
-                                                y-point
-                                                (task-image-up-path cur-task)
-                                                (task-image-down-path
-                                                 cur-task)
-                                                amount)
+                                        ;; (format out "~% ----
+                                        ;;          ~% IN DO
+                                        ;;          ~% y-point ~A ~% image-up ~A
+                                        ;;          ~% image-down ~A
+                                        ;;          ~% black. white ~A
+                                        ;;           % ----"
+                                        ;;         y-point
+                                        ;;         (task-image-up-path cur-task)
+                                        ;;         (task-image-down-path
+                                        ;;          cur-task)
+                                        ;;         amount)
                                         (setf cur-results (cons
                                                            (cons amount
                                                                  y-point)
@@ -1355,45 +1368,45 @@ y-point-ов)
                         ;; сортируем результаты
                         ;; по количеству черных точек
                         ;; от самого выского результата до самого низкого
-                        ;;(format out " ~% cur-results ~A" cur-results)
+                        (format out " ~% cur-results ~A" cur-results)
                         (let* ((best-res (find-best cur-results))
-                               (new-result (aref results
-                                                 (fill-pointer results)))
-                               (appended-image))
+                               (new-result (make-result
+                                            :white (cdr (car best-res))
+                                            :black (car (car best-res))
+                                            :y-point (cdr best-res)
+                                            :image-up (task-image-up cur-task)
+                                            :image-down
+                                            (task-image-down cur-task)
+                                            ))
+                               ;; (appended-image (append-image
+                               ;;                  (result-image-up
+                               ;;                   new-result)
+                               ;;                  (result-image-down
+                               ;;                   new-result)
+                               ;;                  (result-y-point
+                               ;;                   new-result)))
+                               )
 
                           ;;(format out "~% sorted-result ~A" best-res)
-                          (setf (result-white new-result) (cdr (car best-res))
-                                (result-black new-result) (car (car best-res))
-                                (result-y-point new-result) (cdr best-res)
-                                (result-image-up new-result)
-                                (task-image-up cur-task)
-                                (result-image-down new-result)
-                                (task-image-down cur-task))
                           ;; выводим результат
                           (format out "~% ----
-                                                       ~% y-point ~A ~% image-up ~A
-                                                       ~% image-down ~A
-                                                       ~% amount ~A
-                                                        % ----"
+                                                               ~% y-point ~A ~% image-up ~A
+                                                               ~% image-down ~A
+                                                               ~% amount ~A
+                                                                % ----"
                                   (result-y-point new-result)
                                   (task-image-up-path cur-task)
                                   (task-image-down-path cur-task)
                                   (result-black new-result))
                           (force-output out)
-
-                          (setf appended-image (append-image
-                                                (result-image-up new-result)
-                                                (result-image-down new-result)
-                                                (result-y-point new-result)))
                           ;; сохраняем склеенную картинку
-                          (bt:with-lock-held (lock)
-                            (destructuring-bind (height width)
-                                (array-dimensions appended-image)
-                              (save-png width height
-                                        (format nil "~~/Pictures/resut~A.png"
-                                                cnt)
-                                        appended-image :grayscale)
-                              (incf cnt)))
+                          ;; (bt:with-lock-held (lock)
+                          ;;   (destructuring-bind (height width)
+                          ;;       (array-dimensions appended-image)
+                          ;;     (save-png width height
+                          ;;               (format nil "~~/Pictures/resut~A.png"
+                          ;;                       cnt)
+                          ;;               appended-image :grayscale)))
                           ;; записываем результаты в пулл результатов
                           (bt:with-lock-held (lock)
                             (vector-push new-result results))
@@ -1483,14 +1496,22 @@ get-data скринит экран, сохраняет изображения и
 Если какие-то результаты есть, проверяем флаг last?. Если он t, мы достигли конца
 страницы и скрининг прекращается.
 
-В этом случае просто ожидаем завершения работы анализирующих потоков и вызываем
-make-roll, которая должна (в теории... ) склеить все картинки в одно большое
-изображение.
+В этом случае просто ожидаем завершения работы анализирующих потоков. После того как
+они завершили свою работу, сдвигаем fill-pointer в очереди тасков на начало очереди,
+т.к. нам еще понадобится эта память, а вот таски - уже нет, а затем вызовем функцию
+склейки, которая будет склеивать изображения до тех пор, пока они не сольются в рулон.
 
-На данный момент вместо вызова make-roll мы просто возвращаем t.
+Именно ради функции склйки ~make-roll~ мы и очищаем очередь tasks от тасков: для склейки
+нам придется снова создавать таски из уже полученных склеенных изображений,
+анализировать их и клеить снова.
+
+
+На данный момент вместо вызова ~make-roll~ мы вызываем ~make-roll-test~,
+которая описана в разделе ~демо версия~.
+
 #+NAME: screen_and_waiting
 #+BEGIN_SRC lisp :noweb yes
-          (in-package  #:cl-autogui)
+              (in-package  #:cl-autogui)
 
           ;; после того, как создали все потоки и записали их имена,
           ;; скриним экран
@@ -1546,8 +1567,12 @@ make-roll, которая должна (в теории... ) склеить вс
                                   ;;(return-from get-area-merge-results results)
                                   (progn
                                     ;;(make-roll num-of-cores)
-                                    ;;(make-roll-test)
+                                    ;; очищаем пулл тасков, т.к. он нам еще понадобится
+                                    (do ((i (fill-pointer tasks) (decf i)))
+                                        (( = i 0))
+                                      (vector-pop tasks))
                                     (format t "~% results ~A" (fill-pointer results))
+                                    (make-roll-test)
                                     (return-from get-area-merge-results t))
                                   ;; иначе проверяем снова
                                   (progn
@@ -1995,20 +2020,24 @@ Y, по которым xor-area и analysis будут ксорить и ана�
 #+END_SRC
 
 Данная функция будет брать данные из пула результатов и склеивать по ним картинки.
+Она берет результаты анализа картинок по одному из общего пулла результатов и склеивает
+картинки до тех пор, пока результаты анализа не кончатся.
+
+Писалась в отладочных целях, поэтому однопоточная.
 
 #+NAME: make-roll-test
 #+BEGIN_SRC lisp :noweb yes
 
-      (let ((cnt 0))
-        (defun make-roll-test ()
+      (defun make-roll-test ()
           (format t "~% make-roll: amount of results ~A"
                   (fill-pointer results))
+          (let ((counter 0))
           (tagbody
            append-images
              (format t "~% append-images")
              ;; получаем результаты анализа
              (let* (;; (cur-task (vector-pop results))
-                    (cur-task (aref results cnt))
+                    (cur-task (aref results counter))
                     (image-up (result-image-up cur-task))
                     (image-down (result-image-down cur-task))
                     (y-point (result-y-point cur-task)))
@@ -2018,9 +2047,9 @@ Y, по которым xor-area и analysis будут ксорить и ана�
                      (array-dimensions image-up)
                    (format t
                            "~% --------------------
-                                   ~% height-down ~A width-down ~A
-                                   ~% height-up ~A width-up ~A
-                                   ~% --------------------"
+                                       ~% height-down ~A width-down ~A
+                                       ~% height-up ~A width-up ~A
+                                       ~% --------------------"
                            height-down width-down height-up width-up)))
 
                (let ((appended-image
@@ -2028,15 +2057,15 @@ Y, по которым xor-area и analysis будут ксорить и ана�
                  (destructuring-bind (height width)
                      (array-dimensions appended-image)
                    (save-png width height
-                             (format nil "~~/Pictures/resut~A.png" cnt)
+                             (format nil "~~/Pictures/resut~A.png" counter)
                              appended-image :grayscale))
-                 (incf cnt)
+                 (incf counter)
                  ;; пушим результаты склейки
                  (vector-push appended-image append-results))
 
                ;; результаты аналза кончились?
                ;; (if (not (eql (fill-pointer results) 0))
-               (if (not (eql cnt (fill-pointer results)))
+               (if (not (eql counter (fill-pointer results)))
                    ;; нет!
                    (go append-images)
                    t)))))
