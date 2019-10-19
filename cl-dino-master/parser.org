@@ -1013,6 +1013,13 @@ append-image принимает 2 массива с изображениями, 
 использовать именно координаты ~Y~ изображния ~image-down~. Они нам нужны
 снизу-доверху.
 
+
+
+
+
+
+
+
 Чтоб не открывать и закрывать
 потоки до бесконечности, создадим пулл из потоков (кол-во ядер - 1),
 которые будут брать задание по очереди и выполнять его.
@@ -1025,43 +1032,42 @@ get-data обеспечивает получение скринов с экра�
 #+BEGIN_SRC lisp :noweb yes
   (in-package  #:cl-autogui)
 
-<<get-data-ofline>>
+  <<get-data-ofline>>
 
-    (defun get-data (image-up-path image-down-path)
-        ;; если тасков нет, а занчит, нет и пары изображений
-        (format t "~% get-data: image-up ~A image-down ~A" image-up-path image-down-path)
-        ;;(if (eql (fill-pointer tasks) 0)
-            ;; сделать скриншот
-            (let ((image-up
-                   (binarization
-                    (x-snapshot :x 440 :y 100
-                                :width *snap-width* :height *snap-height*))))
-              ;; провертим экран вниз
-              (perform-key-action t 117)
-              (sleep .1)
-              (perform-key-action nil 117)
-              (sleep .5)
-              ;; сделать второй скриншот
-              (let ((image-down
-                     (binarization (x-snapshot :x 440 :y 100 :width *snap-width*
-                                               :height *snap-height*))))
-                ;; сделать таск для них
-                (create-task image-up image-down image-up-path image-down-path)
-                ;; сохранить их
-                (destructuring-bind (height-down width-down)
-                    (array-dimensions image-down)
-                  (save-png width-down height-down image-down-path image-down :grayscale))
-                (destructuring-bind (height-up width-up)
-                    (array-dimensions image-up)
-                  (save-png width-up height-up image-up-path image-up :grayscale))))
-            ;; else
-            ;;(progn
-              ;; провертим экран вниз
-              (perform-key-action t 117)
-              (sleep .1)
-              (perform-key-action nil 117)
-              (sleep .5))
-
+  (defun get-data (image-up-path image-down-path)
+    ;; если тасков нет, а занчит, нет и пары изображений
+    (format t "~% get-data: image-up ~A image-down ~A" image-up-path image-down-path)
+    ;;(if (eql (fill-pointer tasks) 0)
+    ;; сделать скриншот
+    (let ((image-up
+           (binarization
+            (x-snapshot :x 440 :y 100
+                        :width *snap-width* :height *snap-height*))))
+      ;; провертим экран вниз
+      (perform-key-action t 117)
+      (sleep .1)
+      (perform-key-action nil 117)
+      (sleep .5)
+      ;; сделать второй скриншот
+      (let ((image-down
+             (binarization (x-snapshot :x 440 :y 100 :width *snap-width*
+                                       :height *snap-height*))))
+        ;; сделать таск для них
+        (create-task image-up image-down image-up-path image-down-path)
+        ;; сохранить их
+        (destructuring-bind (height-down width-down)
+            (array-dimensions image-down)
+          (save-png width-down height-down image-down-path image-down :grayscale))
+        (destructuring-bind (height-up width-up)
+            (array-dimensions image-up)
+          (save-png width-up height-up image-up-path image-up :grayscale))))
+    ;; else
+    ;;(progn
+    ;; провертим экран вниз
+    (perform-key-action t 117)
+    (sleep .1)
+    (perform-key-action nil 117)
+    (sleep .5))
 #+END_SRC
 
 Для упрощения отладки результаты и таски будут представлены структурами. А храниться
@@ -1071,13 +1077,13 @@ cnt - на свободные таски, т.е.таски, которые не 
 и их можно взять.
 
 Структура results включает в себя:
-% четрых точек
-% белых точек
-y-point, на котором данный результат был получен
-image-up - массив изображения image-up
-image-down - массив изображения image-down
+- % черных точек
+- % белых точек
+- y-point, на котором данный результат был получен
+- image-up - массив изображения image-up
+- image-down - массив изображения image-down
 
-Структура append-results включает в себя:
+Структура ~append-results~ включает в себя:
 массив склеенного изображения
 
 #+NAME: structs
@@ -1156,31 +1162,30 @@ y-points (координаты Y).
 #+NAME: get_area_merge_results
 #+BEGIN_SRC lisp :noweb yes
 
-    (in-package  #:cl-autogui)
+  (in-package  #:cl-autogui)
 
-    <<make_roll>>
+  <<make_roll>>
 
-      (defun get-area-merge-results (num-of-cores)
-        (let* ((lock (bt:make-lock))
-               (thread-names)
-               (screen-cnt 0)
-               (cnt 0))
-          ;; генерим потоки
-          (do ((i 0 (incf i)))
-              ((= i (- num-of-cores 1)))
-            (multiple-value-bind (name value)
-                (intern (format nil "thread~A" i))
-              (format t "~%  thread ~A" name)
-              (in-package  #:cl-autogui)
+  (defun get-area-merge-results (num-of-cores)
+    (let* ((lock (bt:make-lock))
+           (thread-names)
+           (screen-cnt 0)
+           (cnt 0))
+      ;; генерим потоки
+      (do ((i 0 (incf i)))
+          ((= i (- num-of-cores 1)))
+        (multiple-value-bind (name value)
+            (intern (format nil "thread~A" i))
+          (format t "~%  thread ~A" name)
 
-  <<thread>>
+          <<thread>>
 #+END_SRC
 
 Функция потока: параметров не принимет, внутри себя использует 2 общих для всех потоков
 ресурса:
-пулл тасков
-общий пулл результатов
-переменная cnt, которая служит указателем на незанятые таски
+- пулл тасков
+- общий пулл результатов
+- переменная ~cnt~, которая служит указателем на незанятые таски
 
 Алгоритм действия анализирующего потока:
 ~начало~
