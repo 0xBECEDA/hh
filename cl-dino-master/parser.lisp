@@ -267,7 +267,7 @@
     result))
 
 ;; (in-package  #:cl-autogui)
-;; 
+;;
 ;; (block save-load-binarixation-test
 ;;   (x-snapshot :x 440 :width  *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -277,7 +277,7 @@
 ;;         (array-dimensions image)
 ;;       (save-png dw dh "~/Pictures/test-bin.png"
 ;;                image  :grayscale))))
-;; 
+;;
 ;; (block save-load-full-color-test
 ;;   (x-snapshot :x 440 :width *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -298,7 +298,7 @@
 (defun x-move (x y)
   (if (and (integerp x) (integerp y))
       (with-default-display-force (d)
-        (xlib/xtest:fake-motion-event d x y))
+        (xtest:fake-motion-event d x y))
       (error "Integer only for position, (x: ~S, y: ~S)" x y)))
 
 (defun mklist (obj)
@@ -367,11 +367,11 @@
 (defun perform-mouse-action (press? button &key x y)
   (and x y (x-move x y))
   (with-default-display-force (d)
-    (xlib/xtest:fake-button-event d button press?)))
+    (xtest:fake-button-event d button press?)))
 
 (defun perform-key-action (press? keycode) ; use xev to get keycode
   (with-default-display-force (d)
-    (xlib/xtest:fake-key-event d keycode press?)))
+    (xtest:fake-key-event d keycode press?)))
 
   ;; (block perform-key-action-test
   ;;   (perform-key-action t 116)
@@ -568,7 +568,7 @@
   ;;          (save-png width height "~/Pictures/area.png" app-arr :grayscale))))))
 
   (in-package  #:cl-autogui)
-  
+
   (defun append-image (image-up image-down y-point)
     (destructuring-bind (height-down width-down &optional colors-down)
         (array-dimensions image-down)
@@ -615,7 +615,7 @@
                          (setf (aref image-new new-y qx rz)
                                (aref image-down qy qx rz)))))))
         image-new)))
-  
+
   ;; (block test-append-image-fullcolor
   ;;   (let* ((arr1 (x-snapshot :x 0 :y 0 :width 755 :height 300))
   ;;          (arr2 (x-snapshot :x 100 :y 100 :width 755 :height 300))
@@ -623,8 +623,8 @@
   ;;     (destructuring-bind (height width  &rest rest)
   ;;         (array-dimensions array)
   ;;       (save-png width height "~/Pictures/result.png" array))))
-  
-  
+
+
   ;; (block test-append-image-grayscale
   ;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
   ;;          (arr2 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
@@ -632,7 +632,7 @@
   ;;     (destructuring-bind (height width  &rest rest)
   ;;         (array-dimensions array)
   ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
-  
+
     (in-package  #:cl-autogui)
   (defun analysis (xored-image y-point &optional (border 50))
     "Принимает отксоренное изображение и y-координату  наложения,
@@ -687,7 +687,7 @@
               ;;(format t " ~% black ~A y-point ~A pixamount ~A" black y-point pix-amount)
               ;; возвращаем кол-во черных пикселей в процентном выражении
               result)))))
-  
+
     ;; (block analysis-test
     ;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
     ;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
@@ -696,7 +696,7 @@
     ;;                          array 200 80)
     ;;                         200)))
     ;;     (format t " ~% results ~A" results)))
-  
+
 
 
 
@@ -789,14 +789,14 @@
         (setf tasks (append tasks (list new-task)))
         )))
   (in-package  #:cl-autogui)
-  
-  
+
+
   (defun get-data-ofline (image-up image-down)
     (format t "~% get-data-ofline")
     (create-task (binarization (load-png image-up))
                  (binarization (load-png image-down))))
-  
-  
+
+
   (defun get-data (image-up-path image-down-path)
     ;; если тасков нет, а занчит, нет и пары изображений
     (format t "~% get-data: image-up ~A image-down ~A" image-up-path image-down-path)
@@ -832,7 +832,7 @@
     (perform-key-action nil 117)
     (sleep .5))
   (in-package #:cl-autogui)
-  
+
   (defun find-best (thread-results)
     ;; получаем все результаты от потока
     ;; сортируем
@@ -868,12 +868,12 @@
                        ;; проверяем дальше
                        (incf i)
                        (go top))))
-               ;; кол-во черных точек в результатаз не одинаковое
+               ;; кол-во черных точек в результатах не одинаковое
                (return-from
                 find-best best-res))))))
-  
+
   (in-package  #:cl-autogui)
-  
+
   ;;
   ;;(defun make-threads (num-of-cores)
   ;;  (let* ((lock (bt:make-lock))
@@ -1155,7 +1155,7 @@
   ;;                                       (go top))))))))))))
   ;;     ))
   ;;
-  
+
   (defun make-roll-test ()
     (format t "~% make-roll: amount of results ~A"
             (length results))
@@ -1195,7 +1195,7 @@
                ;; нет!
                (go append-images)
                t)))))
-  
+
   (defun get-area-merge-results (num-of-cores)
     (let* ((lock (bt:make-lock))
            (thread-names))
@@ -1226,7 +1226,6 @@
                               ;; Иначе
                               (if (null cur-task)
                                   ;; THEN: Таск не взят
-                                  (if (null tasks)
                                       ;; Таски кончились, надо немного поспать,
                                       ;; а потом проверить снова
                                       (progn
@@ -1238,22 +1237,70 @@
                                             nil
                                             ;; иначе идем забирать таск
                                             (go top)))
-                                      ;; Здесь какой-то парадокс:
-                                      ;; Таск не взят, но таски есть - это невозможная ситуация
-                                      ;; Думаю эта ветка никогда не исполняется, поэтому
-                                      ;; вставил сюда вызов ошибки - если он появится - значит
-                                      ;; я неправ
-                                      (progn
-                                        (error 'my-test-error)
-                                        ;; таск появился!
-                                        ;; забираем
-                                        (go top)))
+                                      ;; (progn
+                                      ;;   (error 'my-test-error)
+                                      ;;   ;; таск появился!
+                                      ;;   ;; забираем
+                                      ;;   (go top))
                                   ;; ELSE: ТАСК ЕСТЬ
                                   ;; Далее я не понимаю зачем это делается и нигде не объяснено..
+                                  ;; Ответ: берешь данные из таска, чтоб передерать их в лямбду
+                                  ;; которая в таске см блок (lambda (image-up image-down y-points)
+                                  ;; которая в таске см блок   (let* ((cur-results)
+                                  ;; которая в таске см блок          (bit-image-up (make-bit-image image-up))
+                                  ;; которая в таске см блок          (bit-image-down (make-bit-image
+                                  ;; которая в таске см блок                           image-down)))
+                                  ;; которая в таске см блок     (do ((i (length y-points) (- i 1)))
+                                  ;; которая в таске см блок         ((= i 0))
+                                  ;; которая в таске см блок       (let ((y-point (car y-points)))
+                                  ;; которая в таске см блок         ;; убираем его из списка y-point-ов
+                                  ;; которая в таске см блок         (setf y-points (cdr y-points))
+                                  ;; которая в таске см блок         ;; если это первая итерация цикла и нет данных
+                                  ;; которая в таске см блок         ;; и никаких результатов еще нет
+                                  ;; которая в таске см блок         (if (null cur-results)
+                                  ;; которая в таске см блок             ;; анализируем изображение с текущим y-point
+                                  ;; которая в таске см блок             ;; и допустимым кол-вом белых точек по умолчанию
+                                  ;; которая в таске см блок             (let ((amount (analysis
+                                  ;; которая в таске см блок                            (xor-area bit-image-up
+                                  ;; которая в таске см блок                                      bit-image-down
+                                  ;; которая в таске см блок                                      y-point)
+                                  ;; которая в таске см блок                            y-point)))
+                                  ;; которая в таске см блок               ;; если какой-то результат получен,
+                                  ;; которая в таске см блок               (if amount
+                                  ;; которая в таске см блок                   (progn
+                                  ;; которая в таске см блок                     (setf cur-results (cons
+                                  ;; которая в таске см блок                                        (cons
+                                  ;; которая в таске см блок                                         amount
+                                  ;; которая в таске см блок                                         y-point)
+                                  ;; которая в таске см блок                                        cur-results)
+                                  ;; которая в таске см блок                           ))))
+                                  ;; которая в таске см блок             ;; если результаты были, получаем новый
+                                  ;; которая в таске см блок             ;; порог белых точек
+                                  ;; которая в таске см блок             (let* ((last-result (car cur-results))
+                                  ;; которая в таске см блок                    (white (cdr (car last-result)))
+                                  ;; которая в таске см блок                    ;; вызываем анализ с этим порогом
+                                  ;; которая в таске см блок                    (amount (analysis
+                                  ;; которая в таске см блок                             (xor-area bit-image-up
+                                  ;; которая в таске см блок                                       bit-image-down
+                                  ;; которая в таске см блок                                       y-point)
+                                  ;; которая в таске см блок                             y-point white)))
+                                  ;; которая в таске см блок               ;; если какой-то результат получен,
+                                  ;; которая в таске см блок               (if amount
+                                  ;; которая в таске см блок                   ;; записываем в в текущий пулл результатов
+                                  ;; которая в таске см блок                   (progn
+                                  ;; которая в таске см блок                     (setf cur-results (cons
+                                  ;; которая в таске см блок                                        (cons amount
+                                  ;; которая в таске см блок                                              y-point)
+                                  ;; которая в таске см блок                                        cur-results))
+                                  ;; которая в таске см блок                     ))))))
+                                  ;; которая в таске см блок     cur-results
+                                  ;; которая в таске см блок     ))
+                                  ;; которая в таске см блок
                                   (let* ((image-up    (task-image-up cur-task))
                                          (image-down  (task-image-down cur-task))
                                          (y-points    (task-y-points cur-task))
                                          (fn          (task-fn cur-task))
+                                         ;; получаем все результаты анализа
                                          (cur-results (funcall fn image-up image-down y-points)))
                                     (format out " ~% task image-up ~A image-down ~A"
                                             (task-image-up-path cur-task)
@@ -1290,19 +1337,7 @@
                                       (go top)))))))))))
           (push t-name thread-names)))
       (in-package #:cl-autogui)
-      
-      (defun alive-threads-counter (thread-names)
-        (let ((alive-t-cnt 0))
-          (do ((i 0 (incf i)))
-              ((= i (length thread-names)))
-            ;;(format t "~% nth ~A thread-name ~A" i (nth i thread-names))
-            ;; если поток жив
-            (if (bt:thread-alive-p (nth i thread-names))
-                ;; (format t "~% alive ~A "(nth i thread-names))
-                ;; инкрементируем счетчик
-                (incf alive-t-cnt)))
-          alive-t-cnt))
-      
+
       ;; после того, как создали все потоки и записали их имена,
       ;; скриним экран
       (let ((screen-cnt 0))
@@ -1316,7 +1351,7 @@
                              "~~/Pictures/screen~A.png"
                              (incf screen-cnt)))
            (incf screen-cnt)
-      
+
            (sleep 8)
            (format t "~% length results ~A" (length results))
            ;;(format t "~% length tasks ~A" (fill-pointer tasks))
@@ -1358,8 +1393,21 @@
                                   (sleep .5)
                                   ;;(format t "~% wait")
                                   (go  check-threads))))))
-                     (go get-data))))))))
-  
+                     (go get-data))))))
+      ))
+
+  (defun alive-threads-counter (thread-names)
+    (let ((alive-t-cnt 0))
+      (do ((i 0 (incf i)))
+          ((= i (length thread-names)))
+        ;;(format t "~% nth ~A thread-name ~A" i (nth i thread-names))
+        ;; если поток жив
+        (if (bt:thread-alive-p (nth i thread-names))
+            ;; (format t "~% alive ~A "(nth i thread-names))
+            ;; инкрементируем счетчик
+            (incf alive-t-cnt)))
+      alive-t-cnt))
+
   (defun demo-get-area-merge-results ()
     (let ((screen-cnt 0))
       (tagbody top
@@ -1370,7 +1418,7 @@
                                   "~~/Pictures/screen~A.png"
                                   (incf screen-cnt)))
          (incf screen-cnt)
-  
+
          ;; (get-data (format nil
          ;;                   "~~/Pictures/screen~A.png"
          ;;                   screen-cnt)
@@ -1378,7 +1426,7 @@
          ;;                   "~~/Pictures/screen~A.png"
          ;;                   (incf screen-cnt)))
          ;; (incf screen-cnt)
-  
+
          ;; делаем таски для 3 картинок
          (if (< screen-cnt 8)
              (go top)
@@ -1416,21 +1464,21 @@
                    )
                  (make-roll-test)
                  ))))))
-  
+
   )
 
 (in-package  #:cl-autogui)
 
-;; (time
-;; (block get-area-merge-reselt-test
-;;    (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-;;    (sleep 8)
-;;    (let ((result (get-area-merge-results 4)))
-;;    )))
+(time
+(block get-area-merge-reselt-test
+   (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
+   (sleep 8)
+   (let ((result (get-area-merge-results 4)))
+   )))
 
-;; (time
-;;  (block ofline-demo-test
-;;    (demo-get-area-merge-results)))
+(time
+ (block ofline-demo-test
+   (demo-get-area-merge-results)))
 
 ;; (time
 ;;  (block online-demo-test
