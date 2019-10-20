@@ -991,6 +991,7 @@ append-image принимает 2 массива с изображениями, 
 - image-down - массив изображения image-down
 - image-up-path - путь к изображению image-up
 - image-down-path - путь к изображению image-down
+- fn - лябда-функция,которая будет исполнять таск
 
 #+NAME: the_task
 #+BEGIN_SRC lisp :noweb yes
@@ -999,7 +1000,8 @@ append-image принимает 2 массива с изображениями, 
     (image-up nil)
     (image-down nil)
     (image-up-path nil)
-    (image-down-path nil))
+    (image-down-path nil)
+    fn)
 #+END_SRC
 
 Мы формируем ~y-points~ следующим образом:
@@ -1013,11 +1015,81 @@ append-image принимает 2 массива с изображениями, 
 использовать именно координаты ~Y~ изображния ~image-down~. Они нам нужны
 снизу-доверху.
 
+Лямбда-функция принимает три параметра от таска, который ее
+содержит: image-up, image-down и список y-points. (Я не знаю как дать лямбде доступ к
+полям таска, в котором она сама же находится, по-другому).
 
+Механизи работы:
+- сделать image-up и image-down битовыми, так их скорее анализировать
+- исполнить цикл столько раз, сколько у нас координат Y внутри списка y-points:
+- на каждой итерации цикла отксорить 2 картинки с текущим y-point
+- проанализировать результат ксора
+- это первая итерация цикла?
+Да!
+- вызываем analysis с порогом белых точек по умолчанию
+- если analysis вернул какой-то результат, сохранить его в cur-results
+НЕТ!
+- получаем  порог белых точек из предыдущего результата
+- вызываем analysis с ним
+- если analysis вернул какой-то результат, сохранить его в cur-results
+- после окончания цилка вернуть cur-results
 
+Cur-results нам еще понадобятся
 
+#+NAME: lambda
+#+BEGIN_SRC lisp :noweb yes
+  (lambda (image-up image-down y-points)
+    (let* ((cur-results)
+           (bit-image-up (make-bit-image image-up))
+           (bit-image-down (make-bit-image
+                            image-down)))
+      (do ((i (length y-points) (- i 1)))
+          ((= i 0))
+        (let ((y-point (car y-points)))
+          ;; убираем его из списка y-point-ов
+          (setf y-points (cdr y-points))
+          ;; если это первая итерация цикла и нет данных
+          ;; и никаких результатов еще нет
+          (if (null cur-results)
+              ;; анализируем изображение с текущим y-point
+              ;; и допустимым кол-вом белых точек по умолчанию
+              (let ((amount (analysis
+                             (xor-area bit-image-up
+                                       bit-image-down
+                                       y-point)
+                             y-point)))
+                ;; если какой-то результат получен,
+                (if amount
+                    (progn
+                      (setf cur-results (cons
+                                         (cons
+                                          amount
+                                          y-point)
+                                         cur-results)
+                            ))))
+              ;; если результаты были, получаем новый
+              ;; порог белых точек
+              (let* ((last-result (car cur-results))
+                     (white (cdr (car last-result)))
+                     ;; вызываем анализ с этим порогом
+                     (amount (analysis
+                              (xor-area bit-image-up
+                                        bit-image-down
+                                        y-point)
+                              y-point white)))
+                ;; если какой-то результат получен,
+                (if amount
+                    ;; записываем в в текущий пулл результатов
+                    (progn
+                      (setf cur-results (cons
+                                         (cons amount
+                                               y-point)
+                                         cur-results))
+                      ))))))
+      cur-results
+      ))
 
-
+#+END_SRC
 
 
 Чтоб не открывать и закрывать
@@ -1137,20 +1209,41 @@ y-points (координаты Y).
                                         :image-up image-up
                                         :image-down image-down
                                         :image-up-path image-up-path
-                                        :image-down-path image-down-path)))
+                                        :image-down-path image-down-path
+                                        :fn
+                                        <<lambda>>
+                                        )))
               ;;(format t "~% new-task ~A" new-task)
               (vector-push new-task tasks))))
 
         <<get_data>>
         <<find-best>>
         <<get_area_merge_results>>
-
+        <<lamda_test>>
         )))
 
   <<get_area_merge_results_tests>>
 
 #+END_SRC
 
+#+NAME: lambda_test
+#+BEGIN_SRC lisp :noweb yes
+
+  ;; (time
+  ;;  (block lambda-test
+  ;;    (let* ((arr1 (binarization (load-png "~/Pictures/screen0.png")))
+  ;;           (arr2 (binarization (load-png "~/Pictures/screen1.png"))))
+  ;;      (create-task arr1 arr2 "~/Pictures/screen10.png"
+  ;;                   "~/Pictures/screen10.png")
+  ;;      (let* ((cur-task (aref tasks 0))
+  ;;             (cur-res (funcall (task-fn cur-task)
+  ;;                               (task-image-up cur-task)
+  ;;                               (task-image-down cur-task)
+  ;;                               (task-y-points cur-task))))
+  ;;        (format t "~% ~A" cur-res))))
+  ;;  )
+
+#+END_SRC
 А теперь все это соберем.
 
 Функция принимает в качестве параметра кол-во ядер на вашем компьютере.
@@ -1282,98 +1375,20 @@ y-points (координаты Y).
                           ;; забираем
                           (go top))
                       ;; ТАСК ЕСТЬ
-                      (let* ((image-up)
-                             (image-down)
-                             (y-points)
-                             (cur-results))
-                        (format out "~% get-area cnt ~A "
-                                cnt)
-                        ;; получаем данные из таска
-                        (setf image-up (make-bit-image
-                                        (task-image-up cur-task))
-                              image-down (make-bit-image
-                                          (task-image-down cur-task))
-                              y-points (task-y-points cur-task))
+                      ;; получаем данные таска
+                      (let* ((image-up (task-image-up cur-task))
+                             (image-down (task-image-down cur-task))
+                             (y-points (task-y-points cur-task))
+                             (fn (task-fn cur-task))
+                             ;; выполняем таск
+                             (cur-results (funcall fn image-up image-down
+                                                   y-points)))
 
-                        ;;(format out "~%  y-points ~A "  y-points)
                         (format out " ~% task image-up ~A image-down ~A"
                                 (task-image-up-path cur-task)
                                 (task-image-down-path cur-task))
                         (force-output out)
-                        ;; (format out "~% y-point ~A ~% name ~A
-                        ;;                ~% image-up ~A ~% image-down ~A"
-                        ;;         (car cur-task) name image-up image-down)
 
-                        ;; начинаем анализ
-                        (do ((i (length y-points) (- i 1)))
-                            ((= i 0))
-                          ;; получаем текущий y-point
-                          (let ((y-point (car y-points)))
-                            ;; убираем его из списка y-point-ов
-                            (setf y-points (cdr y-points))
-                            ;; если это первая итерация цикла и нет данных
-                            ;; и никаких результатов еще нет
-                            (if (null cur-results)
-                                ;; анализируем изображение с текущим y-point
-                                ;; и допустимым кол-вом белых точек по умолчанию
-                                (let ((amount (analysis
-                                               (xor-area image-up
-                                                         image-down y-point)
-                                               y-point)))
-                                  ;; (format out "~% --- before
-                                  ;;                  ~% y-point ~A ~% name ~A
-                                  ;;                  ~% amount ~A"
-                                  ;;         y-point name amount)
-                                  ;; если какой-то результат получен,
-                                  (if amount
-                                      (progn
-                                        ;; (format out "~% ----
-                                        ;;          ~% IN DO
-                                        ;;          ~% y-point ~A ~% image-up ~A
-                                        ;;          ~% image-down ~A
-                                        ;;          ~% black. white ~A
-                                        ;;           % ----"
-                                        ;;         y-point
-                                        ;;         (task-image-up-path cur-task)
-                                        ;;         (task-image-down-path
-                                        ;;          cur-task)
-                                        ;;         amount)
-                                        (setf cur-results (cons
-                                                           (cons amount
-                                                                 y-point)
-                                                           cur-results)))))
-                                ;; если результаты были, получаем новый
-                                ;; порог белых точек
-                                (let* ((last-result (car cur-results))
-                                       (white (cdr (car last-result)))
-                                       ;; вызываем анализ с этим порогом
-                                       (amount (analysis
-                                                (xor-area image-up
-                                                          image-down
-                                                          y-point)
-                                                y-point white)))
-                                  ;;(format out "% white ~A" white)
-                                  ;; если какой-то результат получен,
-                                  (if amount
-                                      ;; записываем в в текущий пулл результатов
-                                      ;; (format out "~% amount ~A" amount)
-                                      (progn
-                                        ;; (format out "~% ----
-                                        ;;          ~% IN DO
-                                        ;;          ~% y-point ~A ~% image-up ~A
-                                        ;;          ~% image-down ~A
-                                        ;;          ~% black. white ~A
-                                        ;;           % ----"
-                                        ;;         y-point
-                                        ;;         (task-image-up-path cur-task)
-                                        ;;         (task-image-down-path
-                                        ;;          cur-task)
-                                        ;;         amount)
-                                        (setf cur-results (cons
-                                                           (cons amount
-                                                                 y-point)
-                                                           cur-results))
-                                        ))))))
                         ;; сортируем результаты
                         ;; по количеству черных точек
                         ;; от самого выского результата до самого низкого
@@ -1386,36 +1401,20 @@ y-points (координаты Y).
                                             :image-up (task-image-up cur-task)
                                             :image-down
                                             (task-image-down cur-task)
-                                            ))
-                               ;; (appended-image (append-image
-                               ;;                  (result-image-up
-                               ;;                   new-result)
-                               ;;                  (result-image-down
-                               ;;                   new-result)
-                               ;;                  (result-y-point
-                               ;;                   new-result)))
-                               )
+                                            )))
 
                           ;;(format out "~% sorted-result ~A" best-res)
                           ;; выводим результат
                           (format out "~% ----
-                                                               ~% y-point ~A ~% image-up ~A
-                                                               ~% image-down ~A
-                                                               ~% amount ~A
-                                                                % ----"
+                                       ~% y-point ~A ~% image-up ~A
+                                       ~% image-down ~A
+                                       ~% amount ~A
+                                       ~% ----"
                                   (result-y-point new-result)
                                   (task-image-up-path cur-task)
                                   (task-image-down-path cur-task)
                                   (result-black new-result))
                           (force-output out)
-                          ;; сохраняем склеенную картинку
-                          ;; (bt:with-lock-held (lock)
-                          ;;   (destructuring-bind (height width)
-                          ;;       (array-dimensions appended-image)
-                          ;;     (save-png width height
-                          ;;               (format nil "~~/Pictures/resut~A.png"
-                          ;;                       cnt)
-                          ;;               appended-image :grayscale)))
                           ;; записываем результаты в пулл результатов
                           (bt:with-lock-held (lock)
                             (vector-push new-result results))
