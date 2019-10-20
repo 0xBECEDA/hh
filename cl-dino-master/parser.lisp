@@ -298,7 +298,7 @@
 (defun x-move (x y)
   (if (and (integerp x) (integerp y))
       (with-default-display-force (d)
-        (xtest:fake-motion-event d x y))
+        (xlib/xtest:fake-motion-event d x y))
       (error "Integer only for position, (x: ~S, y: ~S)" x y)))
 
 (defun mklist (obj)
@@ -367,11 +367,11 @@
 (defun perform-mouse-action (press? button &key x y)
   (and x y (x-move x y))
   (with-default-display-force (d)
-    (xtest:fake-button-event d button press?)))
+    (xlib/xtest:fake-button-event d button press?)))
 
 (defun perform-key-action (press? keycode) ; use xev to get keycode
   (with-default-display-force (d)
-    (xtest:fake-key-event d keycode press?)))
+    (xlib/xtest:fake-key-event d keycode press?)))
 
   ;; (block perform-key-action-test
   ;;   (perform-key-action t 116)
@@ -1476,9 +1476,9 @@
    (let ((result (get-area-merge-results 4)))
    )))
 
-(time
- (block ofline-demo-test
-   (demo-get-area-merge-results)))
+;; (time
+;;  (block ofline-demo-test
+;;    (demo-get-area-merge-results)))
 
 ;; (time
 ;;  (block online-demo-test
