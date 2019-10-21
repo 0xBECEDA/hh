@@ -490,10 +490,10 @@ NB: По какой-то странной причине (предположит
 Глядя на все это многообразие можно ужаснуться, но напрямую мы будем взаимодейстсовать
 только с этими двумя функциями.
 
-~perform-mouse-action= создает фейковое событие мышки, а =perform-key-action~ создает
+~perform-mouse-action~ создает фейковое событие мышки, а ~perform-key-action~ создает
 фейковое событие клаиватуры. Обе функции принимают первым параметров t или nil, что
 соответствует "нажать" и "отпустить" в переводе на человеческий, затем
-~keysym=. =perform-mouse-action~ принимает еще и координаты, куда следует кликнуть
+~keysym~. ~perform-mouse-action~ принимает еще и координаты, куда следует кликнуть
 "мышкой".
 
 #+NAME: mouse-and-key-actions
@@ -589,20 +589,23 @@ NB: По какой-то странной причине (предположит
 - повторять до тех пор, пока не получим единый рулон
 
 #+NAME: merge_images
-#+BEGIN_SRC lisp
+#+BEGIN_SRC lisp :noweb yes
   (in-package #:cl-autogui)
 
   <<create_threads>>
   <<screen_scan>>
 
-  (multiple-value-bind (lock thread-names)
-      (create-threads 4)
+  (defun get-area-merge-results (num-of-cores)
     (let* ((tasks '())
            (last? nil)
            (results '())
            (append-results '()))
-      (screen-scan)
-      ))
+      (declare (special tasks last? results append-results))
+      (multiple-value-bind (lock thread-names)
+          (create-threads num-of-cores)
+        (screen-scan))))
+
+  <<get_area_merge_results_tests>>
 #+END_SRC
 
 *** Запуск потоков
@@ -612,8 +615,8 @@ NB: По какой-то странной причине (предположит
 - список имен потоков, чтобы можно было обращаться к ним
 
 #+NAME: create_threads
-#+BEGIN_SRC lisp
-  (defun create_threads (num-of-cores)
+#+BEGIN_SRC lisp :noweb yes
+  (defun create-threads (num-of-cores)
     (let* ((lock (bt:make-lock))
            (thread-names))
       ;; генерим потоки
@@ -621,12 +624,17 @@ NB: По какой-то странной причине (предположит
           ((= i (- num-of-cores 1)))
         (let ((t-name (intern (format nil "thread~A" i))))
           (format t "~%thread '~A' created" t-name)
-          (setf t-name
-                (bt:make-thread
-                 <<thread>>))
-          (push t-name thread-names)))
-      (values lock
-              thread-names)))
+          (let ((bt:*default-special-bindings*
+                 `((tasks . ,tasks)
+                   (last? . ,last?)
+                   (results . ,results)
+                   (append-results . ,append-results))))
+            (setf t-name
+                  (bt:make-thread
+                   <<thread>>))
+            (push t-name thread-names)))
+        (values lock
+                thread-names))))
 #+END_SRC
 
 *** Скриннинг экрана
@@ -648,7 +656,7 @@ NB: По какой-то странной причине (предположит
 которая описана в разделе ~демо версия~.
 
 #+NAME: screen_scan
-#+BEGIN_SRC lisp
+#+BEGIN_SRC lisp :noweb yes
   (in-package #:cl-autogui)
 
   <<get_data>>
@@ -903,7 +911,6 @@ Cur-results нам еще понадобятся
 
 #+NAME: lambda_test
 #+BEGIN_SRC lisp :noweb yes
-
   ;; (time
   ;;  (block lambda-test
   ;;    (let* ((arr1 (binarization (load-png "~/Pictures/screen0.png")))
@@ -917,7 +924,6 @@ Cur-results нам еще понадобятся
   ;;                               (task-y-points cur-task))))
   ;;        (format t "~% ~A" cur-res))))
   ;;  )
-
 #+END_SRC
 
 ~create-task~ вызывается из ~get-data~ и делает нам задание для 2-х
@@ -941,28 +947,26 @@ Cur-results нам еще понадобятся
 #+BEGIN_SRC lisp :noweb yes
   (in-package  #:cl-autogui)
 
-    (defun create-task (image-up image-down &optional image-up-path image-down-path)
-      ;;   (format t "~% make-task tasks length ~A " (length tasks))
-      (destructuring-bind (height-down width-down &optional colors-down)
-          (array-dimensions image-down)
-        (let* ((new-task (make-task :y-points <<make_y_points>>
-                                    :image-up image-up
-                                    :image-down image-down
-                                    :image-up-path image-up-path
-                                    :image-down-path image-down-path
-                                    :fn
-                                    <<lambda>>)))
-          ;;(format t "~% new-task ~A" new-task)
-          (setf tasks (append tasks (list new-task)))
-          )))
-    ;; <<get_data>>
-    ;; <<find-best>>
-    ;; <<get_area_merge_results>>
-    ;; <<lamda_test>>
-    )
+  <<the_task>>
 
-  ;; <<get_area_merge_results_tests>>
-
+  (defun create-task (image-up image-down &optional image-up-path image-down-path)
+    ;;   (format t "~% make-task tasks length ~A " (length tasks))
+    (destructuring-bind (height-down width-down &optional colors-down)
+        (array-dimensions image-down)
+      (let* ((new-task (make-task :y-points <<make_y_points>>
+                                  :image-up image-up
+                                  :image-down image-down
+                                  :image-up-path image-up-path
+                                  :image-down-path image-down-path
+                                  :fn
+                                  <<lambda>>)))
+        ;;(format t "~% new-task ~A" new-task)
+        (setf tasks (append tasks (list new-task)))
+        )))
+  ;; <<get_data>>
+  ;; <<find-best>>
+  ;; <<get_area_merge_results>>
+  ;; <<lamda_test>>
 #+END_SRC
 
 ***** Функция подсчета живых потоков
@@ -2185,6 +2189,183 @@ Y, по которым xor-area и analysis будут ксорить и ана�
 
 #+END_SRC
 
+* Модель producer-consumers
+
+~Producer~
+Цель: скрининг экрана и формирование тасков для анализирующего потока
+
+#+NAME: producer
+#+BEGIN_SRC lisp :noweb yes
+  (in-package #:cl-autogui)
+
+  (defparameter *task-queue* nil)
+  (defparameter *screen-cnt* 0)
+  (defparameter *task-cnt* 0)
+  (defparameter *task-limit* 8)
+
+  (defun analize-img-pair ()
+    (print "ANALIZE-IMG-PAIR"))
+
+  (defun producer (cv lock)
+    (labels ((pgdn ()
+               (perform-key-action t 117)
+               (sleep .1)
+               (perform-key-action nil 117)
+               (sleep .5))
+             (take-screenshot ()
+               (binarization
+                (x-snapshot :x 440 :y 100
+                            :width *snap-width* :height *snap-height*)))
+             (save (pic path)
+               (destructuring-bind (height width)
+                   (array-dimensions pic)
+                 (save-png width height path pic :grayscale))))
+      (tagbody
+       repeat
+         (let* ((image-up      (take-screenshot))
+                (image-up-path (format nil "pic-~A" (incf *screen-cnt*))))
+           (save image-up image-up-path)
+           (pgdn)
+           (let ((image-down      (take-screenshot))
+                 (image-down-path (format nil "pic-~A" (incf *screen-cnt*))))
+             (save image-down image-down-path)
+             (destructuring-bind (height-down width-down)
+                 (array-dimensions image-down)
+               ;; add new task to queue
+               (bt:with-lock-held (lock)
+                 (setf *task-queue*
+                       (append *task-queue*
+                               (list (make-task :y-points (loop
+                                                             :for pnt
+                                                             :from height-down
+                                                             :downto 0
+                                                             :collect pnt)
+                                                :image-up image-up
+                                                :image-down image-down
+                                                :image-up-path image-up-path
+                                                :image-down-path image-down-path
+                                                :fn #'analize-img-pair))))
+                 ;; send notify
+                 (bt:condition-notify cv))
+               (sleep 2)
+               (go repeat)))))))
+
+  (defun find-thread-by-name (thread-name)
+    (cdr (assoc thread-name
+                (mapcar #'(lambda (thread)
+                            (cons (bt:thread-name thread)
+                                  thread))
+                        (bt:all-threads))
+                :test #'equal)))
+
+  (defun consumer (cv lock outlock)
+    (flet ((stop (msg)
+             (bt:with-lock-held (outlock)
+               (format t "~% ~A reported: ~A; stop"
+                       (bt:thread-name (bt:current-thread))
+                       msg)
+               (finish-output))
+             (bt:destroy-thread (find-thread-by-name "producer-thread"))))
+      (unless (bt:thread-alive-p (find-thread-by-name "producer-thread"))
+        (bt:destroy-thread (bt:current-thread)))
+      (loop (let ((cur-task))
+              ;; pop task to cur-task
+              (bt:with-lock-held (lock)
+                (bt:condition-wait cv lock)
+                (setf cur-task (pop *task-queue*)))
+              (if (null cur-task)
+                  ;; if no task then skip step
+                  (bt:with-lock-held (outlock)
+                    (format t "~% ~A reported: no task in queue; skip"
+                            (bt:thread-name (bt:current-thread)))
+                    (finish-output))
+                  ;; else
+                  (progn
+                    (bt:with-lock-held (outlock)
+                      (format t "~% ~A woke up for ~A; ~A tasks left, ~A processed"
+                              (bt:thread-name (bt:current-thread))
+                              (cons (task-image-up-path cur-task)
+                                    (task-image-down-path cur-task))
+                              (length *task-queue*)
+                              ,*task-cnt*)
+                      (finish-output))
+                    ;; some heavy computation
+                    (sleep 4)
+                    ;; increment thread-local task-cnt
+                    (incf *task-cnt*)
+                    ;; check task limit
+                    (when (> *task-cnt* *task-limit*)
+                      (stop "task limit has been reached")
+                      (return))
+                    ;; check overload
+                    (when (> (length *task-queue*) 5)
+                      (stop "many tasks in queue")
+                      (return))))))))
+
+  (defun create-threads (num-of-cores)
+    (let* ((cv       (bt:make-condition-variable))
+           (lock     (bt:make-lock "task-queue-lock"))
+           (outlock  (bt:make-lock "output-lock"))
+           (thread-names))
+      (bt:make-thread (lambda () (producer cv lock))
+                      :name "producer-thread")
+      (do ((i 0 (incf i)))
+          ((= i (- num-of-cores 1)))
+        (let ((t-name (intern (format nil "consumer~A" i))))
+          (format t "~%thread '~A' created" t-name)
+          ;; (let ((bt:*default-special-bindings*
+          ;;        `((tasks . ,tasks)
+          ;;          (last? . ,last?)
+          ;;          (results . ,results)
+          ;;          (append-results . ,append-results))))
+          (setf t-name (bt:make-thread (lambda () (consumer cv lock outlock))
+                                       :name (format nil "consumer-~A" i)
+                                       :initial-bindings
+                                       `((*standard-output* . ,*standard-output*)
+                                         (*task-cnt*        . ,*task-cnt*)
+                                         (*task-limit*      . ,*task-limit*))))
+          (push t-name thread-names))
+        ;; )
+        (values lock outlock thread-names))))
+
+  (defparameter *clear*
+    (multiple-value-bind (lock outlock thread-names)
+        (create-threads 3)
+      (lambda ()
+        (mapcar #'(lambda (th)
+                    (bt:destroy-thread (find-thread-by-name th)))
+                thread-names))))
+
+  ;; (bt:all-threads)
+
+  ;; (funcall *clear*)
+
+  ;; OUTPUT:
+  ;; thread 'consumer0' created
+  ;; thread 'consumer1' created
+  ;; consumer-0 reported: no task in queue; skip
+  ;; consumer-1 woke up for (pic-1 . pic-2); 0 tasks left, 0 processed
+  ;; consumer-0 woke up for (pic-3 . pic-4); 0 tasks left, 0 processed
+  ;; consumer-1 woke up for (pic-5 . pic-6); 0 tasks left, 1 processed
+  ;; consumer-0 woke up for (pic-7 . pic-8); 0 tasks left, 1 processed
+  ;; consumer-1 woke up for (pic-9 . pic-10); 0 tasks left, 2 processed
+  ;; consumer-0 woke up for (pic-11 . pic-12); 0 tasks left, 2 processed
+  ;; consumer-1 woke up for (pic-13 . pic-14); 0 tasks left, 3 processed
+  ;; consumer-0 woke up for (pic-15 . pic-16); 0 tasks left, 3 processed
+  ;; consumer-1 woke up for (pic-17 . pic-18); 0 tasks left, 4 processed
+  ;; consumer-0 woke up for (pic-19 . pic-20); 0 tasks left, 4 processed
+  ;; consumer-1 woke up for (pic-21 . pic-22); 0 tasks left, 5 processed
+  ;; consumer-0 woke up for (pic-23 . pic-24); 0 tasks left, 5 processed
+  ;; consumer-1 woke up for (pic-25 . pic-26); 0 tasks left, 6 processed
+  ;; consumer-0 woke up for (pic-27 . pic-28); 0 tasks left, 6 processed
+  ;; consumer-1 woke up for (pic-29 . pic-30); 0 tasks left, 7 processed
+  ;; consumer-0 woke up for (pic-31 . pic-32); 0 tasks left, 7 processed
+  ;; consumer-1 woke up for (pic-33 . pic-34); 0 tasks left, 8 processed
+  ;; consumer-0 woke up for (pic-35 . pic-36); 0 tasks left, 8 processed
+  ;; consumer-1 reported: task limit has been reached; stop
+  ;; consumer-0 reported: task limit has been reached; stop
+#+END_SRC
+
 * Идеи
 
 1. У каждой пары анализируемых изображений должен быть свой пулл результатов. Этот пул
@@ -2235,4 +2416,8 @@ results = tasks
 <<append-xor>>
 
 <<create_tasks>>
+
+<<producer>>
+
+<<merge_images>>
 #+END_SRC
