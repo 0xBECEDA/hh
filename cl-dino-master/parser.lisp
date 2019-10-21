@@ -869,15 +869,18 @@
 ;; 
 ;; 
 
+(in-package #:cl-autogui)
+
 (defparameter *task-queue* nil)
 (defparameter *screen-cnt* 0)
+(defparameter *task-cnt* 0)
+(defparameter *task-limit* 8)
+
+(defun analize-img-pair ()
+  (print "ANALIZE-IMG-PAIR"))
 
 (defun producer (cv lock)
-  (labels ((set-value-and-notify (new-value)
-             (bt:with-lock-held (lock)
-               (setf *task-queue* new-value)
-               (bt:condition-notify cv)))
-           (pgdn ()
+  (labels ((pgdn ()
              (perform-key-action t 117)
              (sleep .1)
              (perform-key-action nil 117)
@@ -893,28 +896,147 @@
     (tagbody
      repeat
        (let* ((image-up      (take-screenshot))
-              (image-up-path (incf *screen-cnt*)))
+              (image-up-path (format nil "pic-~A" (incf *screen-cnt*))))
          (save image-up image-up-path)
          (pgdn)
          (let ((image-down      (take-screenshot))
-               (image-down-path (incf *screen-cnt*)))
+               (image-down-path (format nil "pic-~A" (incf *screen-cnt*))))
            (save image-down image-down-path)
-           (let* ((new-task (make-task :y-points (loop :for pnt
-                                                    :from height-down
-                                                    :downto 0
-                                                    :collect pnt)
-                                       :image-up image-up
-                                       :image-down image-down
-                                       :image-up-path image-up-path
-                                       :image-down-path image-down-path
-                                       :fn #'analize-img-pair)))
-             (setf *task-queue*
-                   (append tasks (list new-task)))
-             (sleep 2)))))
-    (dotimes (i 5)
-      (set-value-and-notify (* i i))
-      (sleep 1))
-    (set-value-and-notify :done)))
+           (destructuring-bind (height-down width-down)
+               (array-dimensions image-down)
+             ;; add new task to queue
+             (bt:with-lock-held (lock)
+               (setf *task-queue*
+                     (append *task-queue*
+                             (list (make-task :y-points (loop
+                                                           :for pnt
+                                                           :from height-down
+                                                           :downto 0
+                                                           :collect pnt)
+                                              :image-up image-up
+                                              :image-down image-down
+                                              :image-up-path image-up-path
+                                              :image-down-path image-down-path
+                                              :fn #'analize-img-pair))))
+               ;; send notify
+               (bt:condition-notify cv))
+             (sleep 2)
+             (go repeat)))))))
+
+(defun find-thread-by-name (thread-name)
+  (cdr (assoc thread-name
+              (mapcar #'(lambda (thread)
+                          (cons (bt:thread-name thread)
+                                thread))
+                      (bt:all-threads))
+              :test #'equal)))
+
+(defun consumer (cv lock outlock)
+  (flet ((stop (msg)
+           (bt:with-lock-held (outlock)
+             (format t "~% ~A reported: ~A; stop"
+                     (bt:thread-name (bt:current-thread))
+                     msg)
+             (finish-output))
+           (bt:destroy-thread (find-thread-by-name "producer-thread"))))
+    (unless (bt:thread-alive-p (find-thread-by-name "producer-thread"))
+      (bt:destroy-thread (bt:current-thread)))
+    (loop (let ((cur-task))
+            ;; pop task to cur-task
+            (bt:with-lock-held (lock)
+              (bt:condition-wait cv lock)
+              (setf cur-task (pop *task-queue*)))
+            (if (null cur-task)
+                ;; if no task then skip step
+                (bt:with-lock-held (outlock)
+                  (format t "~% ~A reported: no task in queue; skip"
+                          (bt:thread-name (bt:current-thread)))
+                  (finish-output))
+                ;; else
+                (progn
+                  (bt:with-lock-held (outlock)
+                    (format t "~% ~A woke up for ~A; ~A tasks left, ~A processed"
+                            (bt:thread-name (bt:current-thread))
+                            (cons (task-image-up-path cur-task)
+                                  (task-image-down-path cur-task))
+                            (length *task-queue*)
+                            *task-cnt*)
+                    (finish-output))
+                  ;; some heavy computation
+                  (sleep 4)
+                  ;; increment thread-local task-cnt
+                  (incf *task-cnt*)
+                  ;; check task limit
+                  (when (> *task-cnt* *task-limit*)
+                    (stop "task limit has been reached")
+                    (return))
+                  ;; check overload
+                  (when (> (length *task-queue*) 5)
+                    (stop "many tasks in queue")
+                    (return))))))))
+
+(defun create-threads (num-of-cores)
+  (let* ((cv       (bt:make-condition-variable))
+         (lock     (bt:make-lock "task-queue-lock"))
+         (outlock  (bt:make-lock "output-lock"))
+         (thread-names))
+    (bt:make-thread (lambda () (producer cv lock))
+                    :name "producer-thread")
+    (do ((i 0 (incf i)))
+        ((= i (- num-of-cores 1)))
+      (let ((t-name (intern (format nil "consumer~A" i))))
+        (format t "~%thread '~A' created" t-name)
+        ;; (let ((bt:*default-special-bindings*
+        ;;        `((tasks . ,tasks)
+        ;;          (last? . ,last?)
+        ;;          (results . ,results)
+        ;;          (append-results . ,append-results))))
+        (setf t-name (bt:make-thread (lambda () (consumer cv lock outlock))
+                                     :name (format nil "consumer-~A" i)
+                                     :initial-bindings
+                                     `((*standard-output* . ,*standard-output*)
+                                       (*task-cnt*        . ,*task-cnt*)
+                                       (*task-limit*      . ,*task-limit*))))
+        (push t-name thread-names))
+      ;; )
+      (values lock outlock thread-names))))
+
+(defparameter *clear*
+  (multiple-value-bind (lock outlock thread-names)
+      (create-threads 3)
+    (lambda ()
+      (mapcar #'(lambda (th)
+                  (bt:destroy-thread (find-thread-by-name th)))
+              thread-names))))
+
+;; (bt:all-threads)
+
+;; (funcall *clear*)
+
+;; OUTPUT:
+;; thread 'consumer0' created
+;; thread 'consumer1' created
+;; consumer-0 reported: no task in queue; skip
+;; consumer-1 woke up for (pic-1 . pic-2); 0 tasks left, 0 processed
+;; consumer-0 woke up for (pic-3 . pic-4); 0 tasks left, 0 processed
+;; consumer-1 woke up for (pic-5 . pic-6); 0 tasks left, 1 processed
+;; consumer-0 woke up for (pic-7 . pic-8); 0 tasks left, 1 processed
+;; consumer-1 woke up for (pic-9 . pic-10); 0 tasks left, 2 processed
+;; consumer-0 woke up for (pic-11 . pic-12); 0 tasks left, 2 processed
+;; consumer-1 woke up for (pic-13 . pic-14); 0 tasks left, 3 processed
+;; consumer-0 woke up for (pic-15 . pic-16); 0 tasks left, 3 processed
+;; consumer-1 woke up for (pic-17 . pic-18); 0 tasks left, 4 processed
+;; consumer-0 woke up for (pic-19 . pic-20); 0 tasks left, 4 processed
+;; consumer-1 woke up for (pic-21 . pic-22); 0 tasks left, 5 processed
+;; consumer-0 woke up for (pic-23 . pic-24); 0 tasks left, 5 processed
+;; consumer-1 woke up for (pic-25 . pic-26); 0 tasks left, 6 processed
+;; consumer-0 woke up for (pic-27 . pic-28); 0 tasks left, 6 processed
+;; consumer-1 woke up for (pic-29 . pic-30); 0 tasks left, 7 processed
+;; consumer-0 woke up for (pic-31 . pic-32); 0 tasks left, 7 processed
+;; consumer-1 woke up for (pic-33 . pic-34); 0 tasks left, 8 processed
+;; consumer-0 woke up for (pic-35 . pic-36); 0 tasks left, 8 processed
+;; consumer-1 reported: task limit has been reached; stop
+;; consumer-0 reported: task limit has been reached; stop
 
 (in-package #:cl-autogui)
 
@@ -967,57 +1089,7 @@
                                   ;; ELSE: ТАСК ЕСТЬ
                                   ;; Далее я не понимаю зачем это делается и нигде не объяснено..
                                   ;; Ответ: берешь данные из таска, чтоб передерать их в лямбду
-                                  ;; которая в таске см блок (lambda (image-up image-down y-points)
-                                  ;; которая в таске см блок   (let* ((cur-results)
-                                  ;; которая в таске см блок          (bit-image-up (make-bit-image image-up))
-                                  ;; которая в таске см блок          (bit-image-down (make-bit-image
-                                  ;; которая в таске см блок                           image-down)))
-                                  ;; которая в таске см блок     (do ((i (length y-points) (- i 1)))
-                                  ;; которая в таске см блок         ((= i 0))
-                                  ;; которая в таске см блок       (let ((y-point (car y-points)))
-                                  ;; которая в таске см блок         ;; убираем его из списка y-point-ов
-                                  ;; которая в таске см блок         (setf y-points (cdr y-points))
-                                  ;; которая в таске см блок         ;; если это первая итерация цикла и нет данных
-                                  ;; которая в таске см блок         ;; и никаких результатов еще нет
-                                  ;; которая в таске см блок         (if (null cur-results)
-                                  ;; которая в таске см блок             ;; анализируем изображение с текущим y-point
-                                  ;; которая в таске см блок             ;; и допустимым кол-вом белых точек по умолчанию
-                                  ;; которая в таске см блок             (let ((amount (analysis
-                                  ;; которая в таске см блок                            (xor-area bit-image-up
-                                  ;; которая в таске см блок                                      bit-image-down
-                                  ;; которая в таске см блок                                      y-point)
-                                  ;; которая в таске см блок                            y-point)))
-                                  ;; которая в таске см блок               ;; если какой-то результат получен,
-                                  ;; которая в таске см блок               (if amount
-                                  ;; которая в таске см блок                   (progn
-                                  ;; которая в таске см блок                     (setf cur-results (cons
-                                  ;; которая в таске см блок                                        (cons
-                                  ;; которая в таске см блок                                         amount
-                                  ;; которая в таске см блок                                         y-point)
-                                  ;; которая в таске см блок                                        cur-results)
-                                  ;; которая в таске см блок                           ))))
-                                  ;; которая в таске см блок             ;; если результаты были, получаем новый
-                                  ;; которая в таске см блок             ;; порог белых точек
-                                  ;; которая в таске см блок             (let* ((last-result (car cur-results))
-                                  ;; которая в таске см блок                    (white (cdr (car last-result)))
-                                  ;; которая в таске см блок                    ;; вызываем анализ с этим порогом
-                                  ;; которая в таске см блок                    (amount (analysis
-                                  ;; которая в таске см блок                             (xor-area bit-image-up
-                                  ;; которая в таске см блок                                       bit-image-down
-                                  ;; которая в таске см блок                                       y-point)
-                                  ;; которая в таске см блок                             y-point white)))
-                                  ;; которая в таске см блок               ;; если какой-то результат получен,
-                                  ;; которая в таске см блок               (if amount
-                                  ;; которая в таске см блок                   ;; записываем в в текущий пулл результатов
-                                  ;; которая в таске см блок                   (progn
-                                  ;; которая в таске см блок                     (setf cur-results (cons
-                                  ;; которая в таске см блок                                        (cons amount
-                                  ;; которая в таске см блок                                              y-point)
-                                  ;; которая в таске см блок                                        cur-results))
-                                  ;; которая в таске см блок                     ))))))
-                                  ;; которая в таске см блок     cur-results
-                                  ;; которая в таске см блок     ))
-                                  ;; которая в таске см блок 
+                                  ;; которая в таске см блок lambda
                                   (let* ((image-up    (task-image-up cur-task))
                                          (image-down  (task-image-down cur-task))
                                          (y-points    (task-y-points cur-task))
@@ -1062,54 +1134,6 @@
               thread-names))))
 (in-package #:cl-autogui)
 
-(in-package  #:cl-autogui)
-
-(in-package  #:cl-autogui)
-
-(defstruct result
-  black
-  white
-  y-point
-  image-up image-down)
-
-(defstruct append-results
-  append-image)
-
-
-(defun get-data (image-up-path image-down-path)
-  ;; если тасков нет, а занчит, нет и пары изображений
-  (format t "~% get-data: image-up ~A image-down ~A" image-up-path image-down-path)
-  ;;(if (eql (fill-pointer tasks) 0)
-  ;; сделать скриншот
-  (let ((image-up
-         (binarization
-          (x-snapshot :x 440 :y 100
-                      :width *snap-width* :height *snap-height*))))
-    ;; провертим экран вниз
-    (perform-key-action t 117)
-    (sleep .1)
-    (perform-key-action nil 117)
-    (sleep .5)
-    ;; сделать второй скриншот
-    (let ((image-down
-           (binarization (x-snapshot :x 440 :y 100 :width *snap-width*
-                                     :height *snap-height*))))
-      ;; сделать таск для них
-      (create-task image-up image-down image-up-path image-down-path)
-      ;; сохранить их
-      (destructuring-bind (height-down width-down)
-          (array-dimensions image-down)
-        (save-png width-down height-down image-down-path image-down :grayscale))
-      (destructuring-bind (height-up width-up)
-          (array-dimensions image-up)
-        (save-png width-up height-up image-up-path image-up :grayscale))))
-  ;; else
-  ;;(progn
-  ;; провертим экран вниз
-  (perform-key-action t 117)
-  (sleep .1)
-  (perform-key-action nil 117)
-  (sleep .5))
 
 (defun make-roll-test ()
   (format t "~% make-roll: amount of results ~A"

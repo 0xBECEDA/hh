@@ -659,7 +659,6 @@ NB: По какой-то странной причине (предположит
 #+BEGIN_SRC lisp :noweb yes
   (in-package #:cl-autogui)
 
-  <<get_data>>
   <<alive-threads-counter>>
   <<make_roll_test>>
 
@@ -967,6 +966,7 @@ Cur-results нам еще понадобятся
   ;; <<find-best>>
   ;; <<get_area_merge_results>>
   ;; <<lamda_test>>
+
 #+END_SRC
 
 ***** Функция подсчета живых потоков
@@ -1626,7 +1626,7 @@ xor-area теперь может работать с картинками люб
                    ;; ELSE: ТАСК ЕСТЬ
                    ;; Далее я не понимаю зачем это делается и нигде не объяснено..
                    ;; Ответ: берешь данные из таска, чтоб передерать их в лямбду
-                   ;; которая в таске см блок <<lambda>>
+                   ;; которая в таске см блок lambda
                    (let* ((image-up    (task-image-up cur-task))
                           (image-down  (task-image-down cur-task))
                           (y-points    (task-y-points cur-task))
