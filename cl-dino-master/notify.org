@@ -1,0 +1,54 @@
+#+BEGIN_SRC lisp
+  (defparameter *new-result* nil)
+
+  (defun producer (cv lock)
+    (flet ((set-value-and-notify (new-value)
+             (bt:with-lock-held (lock)
+               (setf *new-result* new-value)
+               (bt:condition-notify cv))))
+      (dotimes (i 5)
+        (set-value-and-notify (* i i))
+        (sleep 1))
+      (set-value-and-notify :done)))
+
+  (defun consumer ()
+    (let ((cv   (bt:make-condition-variable))
+          (lock (bt:make-lock)))
+      (bt:make-thread (lambda ()
+                        (producer cv lock)))
+      (loop (bt:with-lock-held (lock)
+              (bt:condition-wait cv lock)
+              (when (eql *new-result* :done)
+                (return))
+              (print *new-result*)))))
+
+  (consumer)
+#+END_SRC
+
+How It Works
+
+We’re using a so-called condition variable that must always be paired
+with a lock. The consumer calls ~BT:CONDITION-WAIT~, which effectively
+means that it’ll sleep without consuming any CPU cycles until it is woken
+up by the OS scheduler.
+
+This happens whenever another thread calls ~BT:CONDITION-NOTIFY~. That’s
+all.The lock and the internal implementation will make sure that this
+works in an efficient way, and we don’t have to worry about the perils of
+shared resources.
+
+But it might be worth it to have a closer look anyway:
+
+- Both ~BT:CONDITION-WAIT~ and ~BT:CONDITION-NOTIFY~ can only be called
+  by a thread that currently holds the associated lock.
+
+- Once a thread calls ~BT:CONDITION-WAIT~ and it is put to sleep, the
+  lock willautomatically be released in an atomic way.
+
+- If a thread that was waiting is woken up again, it will automatically
+  reacquire the lock. It is as if it had held the lock all the time and
+  was only dreaming thatit was gone...
+
+ote that this mechanism will also work with several threads waiting for
+the samecondition variable - so that you can implement something like a
+pool of “workerthreads.”
