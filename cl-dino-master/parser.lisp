@@ -69,223 +69,11 @@
 ;; (block open-browser-test
 ;;  (open-browser "/usr/bin/firefox" *hh-teaser-url*))
 
-(in-package  #:cl-autogui)
 
-(defmacro with-display (host (display screen root-window) &body body)
-  `(let* ((,display (xlib:open-display ,host))
-          (,screen (first (xlib:display-roots ,display)))
-          (,root-window (xlib:screen-root ,screen)))
-     (unwind-protect (progn ,@body)
-       (xlib:close-display ,display))))
 
-(defmacro with-default-display ((display &key (force nil)) &body body)
-  `(let ((,display (open-default-display)))
-     (unwind-protect
-          (unwind-protect
-               ,@body
-            (when ,force
-              (display-force-output ,display)))
-       (close-display ,display))))
 
-(defmacro with-default-display-force ((display) &body body)
-  `(with-default-display (,display :force t) ,@body))
 
-(defmacro with-default-screen ((screen) &body body)
-  (let ((display (gensym)))
-    `(with-default-display (,display)
-       (let ((,screen (display-default-screen ,display)))
-         ,@body))))
 
-(defmacro with-default-window ((window) &body body)
-  (let ((screen (gensym)))
-    `(with-default-screen (,screen)
-       (let ((,window (screen-root ,screen)))
-         ,@body))))
-
-(in-package  #:cl-autogui)
-
-(in-package  #:cl-autogui)
-
-(defun raw-image->png (data width height)
-  (let* ((png (make-instance 'zpng:png :width width :height height
-                             :color-type :truecolor-alpha
-                             :image-data data))
-         (data (zpng:data-array png)))
-    (dotimes (y height)
-      (dotimes (x width)
-        ;; BGR -> RGB, ref code: https://goo.gl/slubfW
-        ;; diffs between RGB and BGR: https://goo.gl/si1Ft5
-        (rotatef (aref data y x 0) (aref data y x 2))
-        (setf (aref data y x 3) 255)))
-    png))
-
-(defun x-snapshot (&key (x *default-x*) (y *default-y*)
-                     (width  *default-width*) (height *default-height*)
-                     path)
-  ;; "Return RGB data array (The dimensions correspond to the height, width,
-  ;; and pixel components, see comments in x-snapsearch for more details),
-  ;; or write to file (PNG only), depend on if you provide the path keyword"
-  (with-default-window (w)
-    (let ((image
-           (raw-image->png
-            (xlib:get-raw-image w :x x :y y
-                                :width width :height height
-                                :format :z-pixmap)
-            width height)))
-      (if path
-          (let* ((ext (pathname-type path))
-                 (path
-                  (if ext
-                      path
-                      (concatenate 'string path ".png")))
-                 (png? (or (null ext) (equal ext "png"))))
-            (cond
-              (png? (zpng:write-png image path))
-              (t (error "Only PNG file is supported"))))
-          (zpng:data-array image)))))
-
-;; (block save-load-binarixation-test
-;;   (x-snapshot :x *snap-height*
-;;               :width  *snap-width*
-;;               :path "~/Pictures/snapshot-test.png"))
-
-(in-package  #:cl-autogui)
-
-(defun save-png (width height pathname-str image
-                 &optional (color-type :truecolor-alpha))
-  (let* ((png (make-instance 'zpng:png :width width :height height
-                             :color-type color-type))
-         (vector (make-array ;; displaced vector - need copy for save
-                  (* height width (zpng:samples-per-pixel png))
-                  :displaced-to image :element-type '(unsigned-byte 8))))
-    ;; Тут применен потенциально опасный трюк, когда мы создаем
-    ;; объект PNG без данных, а потом добавляем в него данные,
-    ;; используя неэкспортируемый writer.
-    ;; Это нужно чтобы получить третью размерность массива,
-    ;; который мы хотим передать как данные и при этом
-    ;; избежать создания для этого временного объекта
-    (setf (zpng::%image-data png) (copy-seq vector))
-    (zpng:write-png png pathname-str)))
-
-(in-package  #:cl-autogui)
-
-(defun load-png (pathname-str)
-  "Возвращает массив size-X столбцов по size-Y точек,
-   где столбцы идут слева-направо, а точки в них - сверху-вниз
-   ----
-   В zpng есть указание на возможные варианты COLOR:
-   ----
-         (defmethod samples-per-pixel (png)
-           (ecase (color-type png)
-             (:grayscale 1)
-             (:truecolor 3)
-             (:indexed-color 1)
-             (:grayscale-alpha 2)
-             (:truecolor-alpha 4)))
-  "
-  (let* ((png (png-read:read-png-file pathname-str))
-         (image-data (png-read:image-data png))
-         (color (png-read:colour-type png))
-         (dims (cond ((or (equal color :truecolor-alpha)
-                          (equal color :truecolor))
-                      (list (array-dimension image-data 1)
-                            (array-dimension image-data 0)
-                            (array-dimension image-data 2)))
-                     ((or (equal color :grayscale)
-                          (equal color :greyscale))
-                      (list (array-dimension image-data 1)
-                            (array-dimension image-data 0)))
-                     (t (error 'unk-png-color-type :color color))))
-         (result ;; меняем размерности X и Y местами
-          (make-array dims :element-type '(unsigned-byte 8))))
-    ;; (format t "~% new-arr ~A "(array-dimensions result))
-    ;; ширина, высота, цвет => высота, ширина, цвет
-    (macrolet ((cycle (&body body)
-                 `(do ((y 0 (incf y)))
-                      ((= y (array-dimension result 0)))
-                    (do ((x 0 (incf x)))
-                        ((= x (array-dimension result 1)))
-                      ,@body))))
-      (cond ((or (equal color :truecolor-alpha)
-                 (equal color :truecolor))
-             (cycle (do ((z 0 (incf z)))
-                        ((= z (array-dimension result 2)))
-                      (setf (aref result y x z)
-                            (aref image-data x y z)))))
-            ((or (equal color :grayscale)
-                 (equal color :greyscale))
-             (cycle (setf (aref result y x)
-                          (aref image-data x y))))
-            (t (error 'unk-png-color-type :color color)))
-      result)))
-
-(in-package  #:cl-autogui)
-
-(in-package  #:cl-autogui)
-
-;; Ошибка, возникающая когда мы пытаемся прочитать png
-;; в котором неизвестно сколько байт на точку
-(define-condition unk-png-color-type (error)
-  ((color :initarg :color :reader color))
-  (:report
-   (lambda (condition stream)
-     (format stream "Error in LOAD-PNG: unknown color type: ~A"
-             (color condition)))))
-
-(defun binarization (image &optional threshold)
-  (let* ((dims (array-dimensions image))
-         (new-dims (cond ((equal 3 (length dims))  (butlast dims))
-                         ((equal 2 (length dims))  dims)
-                         (t (error 'binarization-error))))
-         (result (make-array new-dims :element-type '(unsigned-byte 8))))
-    (macrolet ((cycle (&body body)
-                 `(do ((y 0 (incf y)))
-                      ((= y (array-dimension image 0)))
-                    (do ((x 0 (incf x)))
-                        ((= x (array-dimension image 1)))
-                      ,@body))))
-      (cond ((equal 3 (length dims))
-             (cycle (do ((z 0 (incf z)))
-                        ((= z (array-dimension image 2)))
-                      (let ((avg (floor (+ (aref image y x 0)
-                                           (aref image y x 1)
-                                           (aref image y x 2))
-                                        3)))
-                        (when threshold
-                          (if (< threshold avg)
-                              (setf avg 255)
-                              (setf avg 0)))
-                        (setf (aref result y x) avg)))))
-            ((equal 2 (length dims))
-             (cycle (let ((avg (aref image y x)))
-                      (when threshold
-                        (if (< threshold avg)
-                            (setf avg 255)
-                            (setf avg 0)))
-                      (setf (aref result y x) avg))))
-            (t (error 'binarization-error))))
-    result))
-
-;; (in-package  #:cl-autogui)
-;; 
-;; (block save-load-binarixation-test
-;;   (x-snapshot :x 440 :width  *snap-width*
-;;               :path "~/Pictures/test.png")
-;;   (let* ((image (load-png "~/Pictures/test.png"))
-;;          (image (binarization image 200)))
-;;     (destructuring-bind (dh dw)
-;;         (array-dimensions image)
-;;       (save-png dw dh "~/Pictures/test-bin.png"
-;;                image  :grayscale))))
-;; 
-;; (block save-load-full-color-test
-;;   (x-snapshot :x 440 :width *snap-width*
-;;               :path "~/Pictures/test.png")
-;;   (sleep .1)
-;;   (let* ((image (load-png "~/Pictures/test.png")))
-;;   (destructuring-bind (dh dw colors)
-;;       (array-dimensions image)
-;;     (save-png dw dh "~/Pictures/test-full-color.png" image))))
 
 (in-package  #:cl-autogui)
 
@@ -484,7 +272,7 @@
 ;;         (array-dimensions array)
 ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
 
-  (in-package  #:cl-autogui)
+(in-package  #:cl-autogui)
 
 (defun xor-area (image-up image-down y-point)
   (destructuring-bind (height-up width-up &optional colors-up)
@@ -497,10 +285,10 @@
       (assert (equal colors-up colors-down))
       (if (>= y-point height-up)
           nil
-          (let* ((new-height (if ( > height-up height-down )
+          (let* ((new-height (if (> height-up height-down )
                                  (+ height-up y-point)
                                  (+ height-down y-point)))
-                 (intersect-area (if ( > (- height-up y-point) height-down)
+                 (intersect-area (if (> (- height-up y-point) height-down)
                                      height-down
                                      (- height-up y-point)))
                  (new-dims (if (null colors-down)
@@ -535,168 +323,36 @@
                                            (aref image-down qy qx rz))))
                            ;; копируем альфа-канал
                            (setf (aref image-new qy qx 3)
-                                 (aref image-down qy qx 3))
-                           ))))
+                                 (aref image-down qy qx 3))))))
             image-new)))))
 
-  ;; (block xor-area-test
-  ;;   (time
-  ;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
-  ;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
-  ;;          (array (xor-area arr1 arr2 200)))
-  ;;              (destructuring-bind (height width  &rest rest)
-  ;;                 (array-dimensions array)
-  ;;                (save-png width height "~/Pictures/area.png" array :grayscale)))))
+;; (block xor-area-test
+;;   (time
+;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
+;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
+;;          (array (xor-area arr1 arr2 200)))
+;;              (destructuring-bind (height width  &rest rest)
+;;                 (array-dimensions array)
+;;                (save-png width height "~/Pictures/area.png" array :grayscale)))))
 
-  ;; (time
-  ;;  (block xor-area-test-with-analysis
-  ;;    (let* ((arr1  (binarization (x-snapshot :width 300 :height 600) 200))
-  ;;           (arr2  (binarization (x-snapshot :y 200 :width 300 :height 200) 200))
-  ;;           (arr1-bin (make-bit-image arr1))
-  ;;           (arr2-bin (make-bit-image arr2))
-  ;;           (amount)
-  ;;           (res))
-  ;;      (do ((i 0 (incf i)))
-  ;;          ((= i (array-dimension arr1 0)))
-  ;;        (setf amount (analysis (xor-area arr1-bin arr2-bin i) i))
-  ;;        (if (car amount)
-  ;;            (setf res (cons (cons amount i) res))))
-  ;;      (setf res (find-best res))
-  ;;      (let ((app-arr (append-image arr1 arr2 (cdr res))))
-  ;;        (destructuring-bind (height width  &rest rest)
-  ;;            (array-dimensions app-arr)
-  ;;          (save-png width height "~/Pictures/area.png" app-arr :grayscale))))))
-
-  (in-package  #:cl-autogui)
-  
-  (defun append-image (image-up image-down y-point)
-    (destructuring-bind (height-down width-down &optional colors-down)
-        (array-dimensions image-down)
-      (let* ((new-height (+ height-down y-point))
-             (new-dims (if (null colors-down)
-                           (list new-height width-down)
-                           (list new-height width-down colors-down)))
-             (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
-        ;; макрос для прохода по блоку точек
-        (macrolet ((cycle ((py px height width &optional &body newline)
-                           &body body)
-                     `(do ((qy ,py (incf qy)))
-                          ((= qy ,height))
-                        (do ((qx ,px (incf qx)))
-                            ((= qx ,width))
-                          ,@body)
-                        ,@newline)))
-          ;; копируем первую картинку в новый массив
-          ;; от ее начала до точки склейки, или до ее конца,
-          ;; смотря что случится раньше
-          (if (null colors-down)  ;; TODO: тут надо проверять цвета первой картинки
-              ;;(cycle (0 0 (min height-down y-point) width-down)
-              (cycle (0 0 y-point width-down)
-                     (setf (aref image-new qy qx)
-                           (aref image-up qy qx)))
-              ;; else
-              (cycle (0 0 y-point width-down)
-                     (do ((qz 0 (incf qz)))
-                         ((= qz colors-down))
-                       (setf (aref image-new qy qx qz)
-                             (aref image-up qy qx qz)))))
-          ;; копируем вторую картинку в новый массив
-          ;; от ее начала до конца
-          (if (null colors-down)
-              (let ((new-y y-point))
-                (cycle (0 0 height-down width-down (incf new-y))
-                       (setf (aref image-new new-y qx)
-                             (aref image-down qy qx))))
-              ;; else
-              (let ((new-y y-point))
-                (cycle (0 0 height-down width-down (incf new-y))
-                       (do ((rz 0 (incf rz)))
-                           ((= rz colors-down))
-                         (setf (aref image-new new-y qx rz)
-                               (aref image-down qy qx rz)))))))
-        image-new)))
-  
-  ;; (block test-append-image-fullcolor
-  ;;   (let* ((arr1 (x-snapshot :x 0 :y 0 :width 755 :height 300))
-  ;;          (arr2 (x-snapshot :x 100 :y 100 :width 755 :height 300))
-  ;;          (array (append-image arr1 arr2 200)))
-  ;;     (destructuring-bind (height width  &rest rest)
-  ;;         (array-dimensions array)
-  ;;       (save-png width height "~/Pictures/result.png" array))))
-  
-  
-  ;; (block test-append-image-grayscale
-  ;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
-  ;;          (arr2 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
-  ;;          (array (append-image arr1 arr2 200)))
-  ;;     (destructuring-bind (height width  &rest rest)
-  ;;         (array-dimensions array)
-  ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
-  
-  (in-package  #:cl-autogui)
-  
-  (defun analysis (xored-image y-point &optional (border 50))
-    "Принимает отксоренное изображение и y-координату  наложения,
-     т.е. точку, от которой будет производиться анализ.
-     Анализирует кол-во почерневших точек на изображении, возвращает cons-пару типа
-     (% черных точек . y-point)"
-    (if (null xored-image)
-        nil
-        (destructuring-bind (height width &optional colors)
-            (array-dimensions xored-image)
-          ;;(format t "~% y-point ~A height ~A" y-point height)
-          (let* ((intesect-height (- height y-point)) ;; высота пересечения
-                 (white 0)
-                 (black 0)
-                 ;; общее кол-во пикселей в области наложения
-                 (pix-amount (* intesect-height width)))
-            ;; высчитываем максимально допустимое количество белых пикселей
-            (setf border (* (float (/ border 100)) pix-amount))
-            ;;(format t "~% intesect-height ~A " intesect-height)
-            ;; если картинки full-color
-            (if colors
-                (do ((qy y-point (incf qy)))
-                    ((= qy height))
-                  ;; если кол-во нечерных пикселей больше 25%
-                  (if (> white border)
-                      (progn
-                        ;; не анализируя дальше, возвращаем nil
-                        (return-from analysis))
-                      ;; в противном случае анализиуем следующий ряд пикселей
-                      (do ((qx 0 (incf qx)))
-                          ((= qx width))
-                        (when (not (and (eql (aref xored-image qy qx 0) 0)
-                                        (eql (aref xored-image qy qx 1) 0)
-                                        (eql (aref xored-image qy qx 2) 0)))
-                          (incf white)))))
-                ;; то же самое для бинарных изображений
-                (do ((qy y-point (incf qy)))
-                    ((= qy height))
-                  (if (> white border)
-                      (progn
-                        (return-from analysis ))
-                      (do ((qx 0 (incf qx)))
-                          ((= qx width))
-                        (when (not (eql (aref xored-image qy qx) 0))
-                          (incf white))))))
-            ;; эта часть выполнится только если все циклы выполнены успешно
-            ;; считаем кол-во черных пикселей
-            (setf black ( - pix-amount white))
-            (let ((result (cons (* (float (/ black pix-amount)) 100)
-                                (* (float (/ white pix-amount)) 100))))
-              ;;(format t " ~% black ~A y-point ~A pixamount ~A" black y-point pix-amount)
-              ;; возвращаем кол-во черных пикселей в процентном выражении
-              result)))))
-  
-  ;; (block analysis-test
-  ;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
-  ;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
-  ;;          (array (xor-area arr1 arr2 200))
-  ;;          (results (cons (analysis
-  ;;                          array 200 80)
-  ;;                         200)))
-  ;;     (format t " ~% results ~A" results)))
-
+;; (time
+;;  (block xor-area-test-with-analysis
+;;    (let* ((arr1  (binarization (x-snapshot :width 300 :height 600) 200))
+;;           (arr2  (binarization (x-snapshot :y 200 :width 300 :height 200) 200))
+;;           (arr1-bin (make-bit-image arr1))
+;;           (arr2-bin (make-bit-image arr2))
+;;           (amount)
+;;           (res))
+;;      (do ((i 0 (incf i)))
+;;          ((= i (array-dimension arr1 0)))
+;;        (setf amount (analysis (xor-area arr1-bin arr2-bin i) i))
+;;        (if (car amount)
+;;            (setf res (cons (cons amount i) res))))
+;;      (setf res (find-best res))
+;;      (let ((app-arr (append-image arr1 arr2 (cdr res))))
+;;        (destructuring-bind (height width  &rest rest)
+;;            (array-dimensions app-arr)
+;;          (save-png width height "~/Pictures/area.png" app-arr :grayscale))))))
 
 
 (in-package  #:cl-autogui)
@@ -821,50 +477,6 @@
      (sleep .1)
      (perform-key-action nil 117)
      (sleep .5))
-   (in-package #:cl-autogui)
-   
-   (defun find-best (thread-results)
-     ;; получаем все результаты от потока
-     ;; сортируем
-     (let* ((sorted-result
-             (sort thread-results
-                   #'(lambda (a b)
-                       (> (car (car a)) (car (car b)))))
-              )
-            ;; берем лучший из отсортированных
-            (best-res (nth 0 sorted-result))
-            (i 0))
-       (tagbody
-        top
-        ;; получаем кол-во черных точек и y-point у лучшего результата
-        ;; и следующего в списке
-          (let ((black-best (car (car best-res)))
-                (cur-black (car (car (nth i sorted-result))))
-                (cur-y (cdr (nth i sorted-result))))
-            ;; если кол-во черных точек в результатах одинаковое
-            (if (eql black-best cur-black)
-                (progn
-                  ;; берем новый результат
-                  ;; это сделано, чтоб если y-point != 0,
-                  ;; сохранить лучший результат с максимально низким y-point
-                  ;; так можно будет склеить картинки максимально правильно,
-                  ;;а не срезать половину
-                  (setf best-res (nth i sorted-result))
-                  ;; и при этом y-point = 0
-                  (if (eql cur-y 0)
-                      ;; мы нашли последнюю пару картинок
-                      (progn
-                        (setf last? t)
-                        (return-from
-                         find-best (nth i sorted-result)))
-                      ;; y-point != 0
-                      (progn
-                        ;; проверяем дальше
-                        (incf i)
-                        (go top))))
-                ;; кол-во черных точек в результатах не одинаковое
-                (return-from
-                 find-best best-res))))))
    
 ;; 
 ;; 
@@ -903,7 +515,7 @@
                                             (pop tasks)))))
                           ;; (format out "~% length tasks ~A" (length tasks))
                           ;; ОЖИДАЕМ ТАСКИ
-                          (if last?
+                          (if *last?*
                               ;; Если установлен флаг LAST - Выходим из потока
                               nil
                               ;; Иначе
@@ -958,7 +570,7 @@
                                               (result-black new-result))
                                       (force-output out)
                                       (bt:with-lock-held (lock)
-                                        (setf results (append results
+                                        (setf *results-queue* (append *results-queue*
                                                               (list new-result))))
                                       ;;(format out "~% results ~A" results)
                                       ;; идем снова брать таск
@@ -969,16 +581,27 @@
 (in-package #:cl-autogui)
 
 
+(defun alive-threads-counter (thread-names)
+  (let ((alive-t-cnt 0))
+    (do ((i 0 (incf i)))
+        ((= i (length thread-names)))
+      ;;(format t "~% nth ~A thread-name ~A" i (nth i thread-names))
+      ;; если поток жив
+      (if (bt:thread-alive-p (nth i thread-names))
+          ;; (format t "~% alive ~A "(nth i thread-names))
+          ;; инкрементируем счетчик
+          (incf alive-t-cnt)))
+    alive-t-cnt))
 (defun make-roll-test ()
   (format t "~% make-roll: amount of results ~A"
-          (length results))
+          (length *results-queue*))
   (let ((counter 0))
     (tagbody
      append-images
        (format t "~% append-images")
        ;; получаем результаты анализа
        (let* (;; (cur-task (vector-pop results))
-              (cur-task (pop results))
+              (cur-task (pop *results-queue*))
               (image-up (result-image-up cur-task))
               (image-down (result-image-down cur-task))
               (y-point (result-y-point cur-task)))
@@ -1001,10 +624,11 @@
                        appended-image :grayscale))
            (incf counter)
            ;; пушим результаты склейки
-           (setf append-results (append append-results (list appended-image))))
+           (setf *append-results-queue* (append *append-results-queue*
+                                                 (list appended-image))))
          ;; результаты аналза кончились?
          ;; (if (not (eql (fill-pointer results) 0))
-         (if (not (eql 0 (length results)))
+         (if (not (eql 0 (length *results-queue*)))
              ;; нет!
              (go append-images)
              t)))))
@@ -1034,7 +658,7 @@
                  (format t "~% y ~A black ~A"
                          (result-y-point struct)
                          (result-black struct))))
-             (if last?
+             (if *last?*
                  (progn
                    ;; (format t "~% length results ~A" (car results))
                    (tagbody
@@ -1049,9 +673,9 @@
                         ;; вызывать склейку
                             (progn
                               ;;(make-roll num-of-cores)
-                              (format t "~% results ~A" (length results))
+                              (format t "~% results ~A" (length *results-queue*))
                               (make-roll-test)
-                              (return-from get-area-merge-results t)) ;; TODO: поменять!!!
+                              (return-from screen-scan t))
                             ;; иначе проверяем снова
                             (progn
                               (sleep .5)
