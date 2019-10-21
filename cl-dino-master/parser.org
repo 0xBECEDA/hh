@@ -962,8 +962,8 @@ Cur-results нам еще понадобятся
         ;;(format t "~% new-task ~A" new-task)
         (setf tasks (append tasks (list new-task)))
         )))
-  ;; <<get_data>>
-  ;; <<find-best>>
+     <<get_data>>
+     <<find-best>>
   ;; <<get_area_merge_results>>
   ;; <<lamda_test>>
 
