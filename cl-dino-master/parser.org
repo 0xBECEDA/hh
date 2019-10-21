@@ -2265,7 +2265,9 @@ Y, по которым xor-area и analysis будут ксорить и ана�
                        (bt:thread-name (bt:current-thread))
                        msg)
                (finish-output))
-             (bt:destroy-thread (find-thread-by-name "producer-thread"))))
+             (let ((producer (find-thread-by-name "producer-thread")))
+               (when producer
+                 (bt:destroy-thread producer)))))
       (unless (bt:thread-alive-p (find-thread-by-name "producer-thread"))
         (bt:destroy-thread (bt:current-thread)))
       (loop (let ((cur-task))
@@ -2417,7 +2419,7 @@ results = tasks
 
 <<create_tasks>>
 
-<<producer>>
+;; <<producer>>
 
 <<merge_images>>
 #+END_SRC
