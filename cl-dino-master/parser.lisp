@@ -267,7 +267,7 @@
     result))
 
 ;; (in-package  #:cl-autogui)
-;; 
+;;
 ;; (block save-load-binarixation-test
 ;;   (x-snapshot :x 440 :width  *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -277,7 +277,7 @@
 ;;         (array-dimensions image)
 ;;       (save-png dw dh "~/Pictures/test-bin.png"
 ;;                image  :grayscale))))
-;; 
+;;
 ;; (block save-load-full-color-test
 ;;   (x-snapshot :x 440 :width *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -298,7 +298,7 @@
 (defun x-move (x y)
   (if (and (integerp x) (integerp y))
       (with-default-display-force (d)
-        (xlib/xtest:fake-motion-event d x y))
+        (xtest:fake-motion-event d x y))
       (error "Integer only for position, (x: ~S, y: ~S)" x y)))
 
 (defun mklist (obj)
@@ -367,11 +367,11 @@
 (defun perform-mouse-action (press? button &key x y)
   (and x y (x-move x y))
   (with-default-display-force (d)
-    (xlib/xtest:fake-button-event d button press?)))
+    (xtest:fake-button-event d button press?)))
 
 (defun perform-key-action (press? keycode) ; use xev to get keycode
   (with-default-display-force (d)
-    (xlib/xtest:fake-key-event d keycode press?)))
+    (xtest:fake-key-event d keycode press?)))
 
   ;; (block perform-key-action-test
   ;;   (perform-key-action t 116)
@@ -568,7 +568,7 @@
   ;;          (save-png width height "~/Pictures/area.png" app-arr :grayscale))))))
 
   (in-package  #:cl-autogui)
-  
+
   (defun append-image (image-up image-down y-point)
     (destructuring-bind (height-down width-down &optional colors-down)
         (array-dimensions image-down)
@@ -615,7 +615,7 @@
                          (setf (aref image-new new-y qx rz)
                                (aref image-down qy qx rz)))))))
         image-new)))
-  
+
   ;; (block test-append-image-fullcolor
   ;;   (let* ((arr1 (x-snapshot :x 0 :y 0 :width 755 :height 300))
   ;;          (arr2 (x-snapshot :x 100 :y 100 :width 755 :height 300))
@@ -623,8 +623,8 @@
   ;;     (destructuring-bind (height width  &rest rest)
   ;;         (array-dimensions array)
   ;;       (save-png width height "~/Pictures/result.png" array))))
-  
-  
+
+
   ;; (block test-append-image-grayscale
   ;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
   ;;          (arr2 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
@@ -632,9 +632,9 @@
   ;;     (destructuring-bind (height width  &rest rest)
   ;;         (array-dimensions array)
   ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
-  
+
   (in-package  #:cl-autogui)
-  
+
   (defun analysis (xored-image y-point &optional (border 50))
     "Принимает отксоренное изображение и y-координату  наложения,
      т.е. точку, от которой будет производиться анализ.
@@ -687,7 +687,7 @@
               ;;(format t " ~% black ~A y-point ~A pixamount ~A" black y-point pix-amount)
               ;; возвращаем кол-во черных пикселей в процентном выражении
               result)))))
-  
+
   ;; (block analysis-test
   ;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
   ;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
@@ -774,19 +774,19 @@
       (setf tasks (append tasks (list new-task)))
       )))
    (in-package  #:cl-autogui)
-   
+
    (in-package  #:cl-autogui)
-   
+
    (defstruct result
      black
      white
      y-point
      image-up image-down)
-   
+
    (defstruct append-results
      append-image)
-   
-   
+
+
    (defun get-data (image-up-path image-down-path)
      ;; если тасков нет, а занчит, нет и пары изображений
      (format t "~% get-data: image-up ~A image-down ~A" image-up-path image-down-path)
@@ -822,7 +822,7 @@
      (perform-key-action nil 117)
      (sleep .5))
    (in-package #:cl-autogui)
-   
+
    (defun find-best (thread-results)
      ;; получаем все результаты от потока
      ;; сортируем
@@ -865,21 +865,21 @@
                 ;; кол-во черных точек в результатах не одинаковое
                 (return-from
                  find-best best-res))))))
-   
-;; 
-;; 
+
+;;
+;;
 
 
 ;; (in-package #:cl-autogui)
-;; 
+;;
 ;; (defparameter *task-queue* nil)
 ;; (defparameter *screen-cnt* 0)
 ;; (defparameter *task-cnt* 0)
 ;; (defparameter *task-limit* 8)
-;; 
+;;
 ;; (defun analize-img-pair ()
 ;;   (print "ANALIZE-IMG-PAIR"))
-;; 
+;;
 ;; (defun producer (cv lock)
 ;;   (labels ((pgdn ()
 ;;              (perform-key-action t 117)
@@ -923,7 +923,7 @@
 ;;                (bt:condition-notify cv))
 ;;              (sleep 2)
 ;;              (go repeat)))))))
-;; 
+;;
 ;; (defun find-thread-by-name (thread-name)
 ;;   (cdr (assoc thread-name
 ;;               (mapcar #'(lambda (thread)
@@ -931,7 +931,7 @@
 ;;                                 thread))
 ;;                       (bt:all-threads))
 ;;               :test #'equal)))
-;; 
+;;
 ;; (defun consumer (cv lock outlock)
 ;;   (flet ((stop (msg)
 ;;            (bt:with-lock-held (outlock)
@@ -977,7 +977,7 @@
 ;;                   (when (> (length *task-queue*) 5)
 ;;                     (stop "many tasks in queue")
 ;;                     (return))))))))
-;; 
+;;
 ;; (defun create-threads (num-of-cores)
 ;;   (let* ((cv       (bt:make-condition-variable))
 ;;          (lock     (bt:make-lock "task-queue-lock"))
@@ -1003,7 +1003,7 @@
 ;;         (push t-name thread-names))
 ;;       ;; )
 ;;       (values lock outlock thread-names))))
-;; 
+;;
 ;; (defparameter *clear*
 ;;   (multiple-value-bind (lock outlock thread-names)
 ;;       (create-threads 3)
@@ -1011,11 +1011,11 @@
 ;;       (mapcar #'(lambda (th)
 ;;                   (bt:destroy-thread (find-thread-by-name th)))
 ;;               thread-names))))
-;; 
+;;
 ;; ;; (bt:all-threads)
-;; 
+;;
 ;; ;; (funcall *clear*)
-;; 
+;;
 ;; ;; OUTPUT:
 ;; ;; thread 'consumer0' created
 ;; ;; thread 'consumer1' created
@@ -1240,12 +1240,12 @@
 
 (in-package  #:cl-autogui)
 
-;; (time
-;; (block get-area-merge-reselt-test
-;;    (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-;;    (sleep 8)
-;;    (let ((result (get-area-merge-results 4)))
-;;    )))
+(time
+(block get-area-merge-reselt-test
+   (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
+   (sleep 8)
+   (let ((result (get-area-merge-results 4)))
+   )))
 
 ;; (time
 ;;  (block ofline-demo-test
