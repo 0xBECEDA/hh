@@ -789,6 +789,116 @@ NB: По какой-то странной причине (предположит
 
 ****** Создание тасков
 
+Структура таска содержит в себе:
+- список ~y-point~-ов. Это список координат ~Y~ изображения ~image-down~,
+  который нужен, чтоб накладывать ~image-down~ на ~image-up~ построчно,
+  пока изображения ~image-down~ или ~image-up~ не кончатся. В случае
+  вопросов по механизму наложения см ~xor-area~
+- image-up - массив изображения image-up
+- image-down - массив изображения image-down
+- image-up-path - путь к изображению image-up
+- image-down-path - путь к изображению image-down
+- fn - лябда-функция,которая будет исполнять таск
+
+#+NAME: the_task
+#+BEGIN_SRC lisp :noweb yes
+  (defstruct task
+    (y-points '())
+    (image-up nil)
+    (image-down nil)
+    (image-up-path nil)
+    (image-down-path nil)
+    fn)
+#+END_SRC
+
+Мы формируем ~y-points~ следующим образом:
+
+#+NAME: make_y_points
+#+BEGIN_SRC lisp :noweb yes
+  (loop :for pnt :from height-down :downto 0 :collect pnt)
+#+END_SRC
+
+Поскольку ~image-down~ накладывается на ~image-up~, то мы будем
+использовать именно координаты ~Y~ изображния ~image-down~. Они нам нужны
+снизу-доверху.
+
+Лямбда-функция принимает три параметра от таска, который ее
+содержит: image-up, image-down и список y-points. (Я не знаю как дать лямбде доступ к
+полям таска, в котором она сама же находится, по-другому). Нужна, чтоб исполнить таск,
+будет вызываться с помощью ~funcall~
+
+Механизм работы:
+- сделать image-up и image-down битовыми, так их скорее анализировать
+- исполнить цикл столько раз, сколько у нас координат Y внутри списка y-points:
+- на каждой итерации цикла отксорить 2 картинки с текущим y-point
+- проанализировать результат ксора
+- это первая итерация цикла?
+Да!
+- вызываем analysis с порогом белых точек по умолчанию
+- если analysis вернул какой-то результат, сохранить его в cur-results
+НЕТ!
+- получаем  порог белых точек из предыдущего результата
+- вызываем analysis с ним
+- если analysis вернул какой-то результат, сохранить его в cur-results
+- после окончания цикла вернуть cur-results
+
+Cur-results нам еще понадобятся
+
+#+NAME: lambda
+#+BEGIN_SRC lisp :noweb yes
+  (lambda (image-up image-down y-points)
+    (let* ((cur-results)
+           (bit-image-up (make-bit-image image-up))
+           (bit-image-down (make-bit-image
+                            image-down)))
+      (do ((i (length y-points) (- i 1)))
+          ((= i 0))
+        (let ((y-point (car y-points)))
+          ;; убираем его из списка y-point-ов
+          (setf y-points (cdr y-points))
+          ;; если это первая итерация цикла и нет данных
+          ;; и никаких результатов еще нет
+          (if (null cur-results)
+              ;; анализируем изображение с текущим y-point
+              ;; и допустимым кол-вом белых точек по умолчанию
+              (let ((amount (analysis
+                             (xor-area bit-image-up
+                                       bit-image-down
+                                       y-point)
+                             y-point)))
+                ;; если какой-то результат получен,
+                (if amount
+                    (progn
+                      (setf cur-results (cons
+                                         (cons
+                                          amount
+                                          y-point)
+                                         cur-results)
+                            ))))
+              ;; если результаты были, получаем новый
+              ;; порог белых точек
+              (let* ((last-result (car cur-results))
+                     (white (cdr (car last-result)))
+                     ;; вызываем анализ с этим порогом
+                     (amount (analysis
+                              (xor-area bit-image-up
+                                        bit-image-down
+                                        y-point)
+                              y-point white)))
+                ;; если какой-то результат получен,
+                (if amount
+                    ;; записываем в в текущий пулл результатов
+                    (progn
+                      (setf cur-results (cons
+                                         (cons amount
+                                               y-point)
+                                         cur-results))
+                      ))))))
+      cur-results
+      ))
+
+#+END_SRC
+
 ~create-task~ вызывается из ~get-data~ и делает нам задание для 2-х
 изображений. Задание выглядит как заполненная структура task: массивы 2-х
 изображений и список точек ~y-points~ (координаты Y).
@@ -906,124 +1016,116 @@ NB: По какой-то странной причине (предположит
                t)))))
 #+END_SRC
 
-** Функция потока
+***** append-image: склеить 2 массива начиная от заданной Y-координаты
 
-Функция потока: параметров не принимет, внутри себя использует 2 общих для всех потоков
-ресурса:
-- пулл тасков
-- общий пулл результатов
-- переменная ~cnt~, которая служит указателем на незанятые таски
+~аppend-image~ вызывается из ~make-roll-test~ и поэтому должна быть определена заранее
+принимает 2 массива с изображениями, которые должны иметь одинаковую
+ширину и кол-во байт на пиксель, точку, от которой будет производиться склейка,
+и возвращает склеенный массив.
 
-Алгоритм действия анализирующего потока:
-~начало~
-- если есть таск, взять 1
-- флаг last? = t?
-ДА!
-- прекращаем анализировать, выходим (эта проверка нужна, чтоб не анализировать
-  одинаковые скрины, даже если такси по ним есть,
-  если мы знаем, что уже достигли конца страницы выдачи)
- НЕТ!
-- таск взят?
-НЕТ!
-- таски есть?
-нет!
-- ждем 6 сек
-- Таски есть?
-нет!
-- выход
-ИНАЧЕ
-- вернуться на ~начало~
-~TOP~
-- вытащить данный из таска в локальные переменные
-- запустить обработку таска
-- найти лучший результат из текущего пул результатов
-- создать новую структуру результата, записать в нее: y-point лучшего
-  результата, кол-во черных точек лучшего результата, image-up,
-  image-down
-- запушить новый результат в общий пулл результатов
-- вернуться на ~начало~
-
-#+NAME: thread
+#+NAME: append-image
 #+BEGIN_SRC lisp :noweb yes
-  (lambda ()
-    (with-open-file (out (format nil "thread~A" i) :direction :output
-                         :if-exists :supersede)
-      ;; (format out "~% ~A" tasks)
-      (tagbody
-       top
-         (format out "~% thread ~A" t-name)
-         (format out "~% tasks ~A"  (length tasks))
-         ;; если таск есть, забираем немедленно
-         (let ((cur-task (unless (null tasks)
-                           (bt:with-lock-held (lock)
-                             (pop tasks)))))
-           ;; (format out "~% length tasks ~A" (length tasks))
-           ;; ОЖИДАЕМ ТАСКИ
-           (if last?
-               ;; Если установлен флаг LAST - Выходим из потока
-               nil
-               ;; Иначе
-               (if (null cur-task)
-                   ;; THEN: Таск не взят
-                   ;; Таски кончились, надо немного поспать,
-                   ;; а потом проверить снова
-                   (progn
-                     (format out "~% wait for task")
-                     (sleep 6)
-                     ;; если тасков так и нет
-                     (if (null tasks)
-                         ;; выход
-                         nil
-                         ;; иначе идем забирать таск
-                         (go top)))
-                   ;; ELSE: ТАСК ЕСТЬ
-                   ;; Далее я не понимаю зачем это делается и нигде не объяснено..
-                   ;; Ответ: берешь данные из таска, чтоб передерать их в лямбду
-                   ;; которая в таске см блок <<lambda>>
-                   (let* ((image-up    (task-image-up cur-task))
-                          (image-down  (task-image-down cur-task))
-                          (y-points    (task-y-points cur-task))
-                          (fn          (task-fn cur-task))
-                          ;; получаем все результаты анализа
-                          (cur-results (funcall fn image-up image-down y-points)))
-                     (format out " ~% task image-up ~A image-down ~A"
-                             (task-image-up-path cur-task)
-                             (task-image-down-path cur-task))
-                     (force-output out)
-                     ;; сортируем результаты
-                     ;; по количеству черных точек
-                     ;; от самого выского результата до самого низкого
-                     (format out " ~% cur-results ~A" cur-results)
-                     (let* ((best-res (find-best cur-results))
-                            (new-result (make-result
-                                         :white (cdr (car best-res))
-                                         :black (car (car best-res))
-                                         :y-point (cdr best-res)
-                                         :image-up (task-image-up cur-task)
-                                         :image-down (task-image-down cur-task))))
-                       ;;(format out "~% sorted-result ~A" best-res)
-                       ;; выводим результат
-                       (format out "~% ----
-                                    ~% y-point ~A ~% image-up ~A
-                                    ~% image-down ~A
-                                    ~% amount ~A
-                                    ~% ----"
-                               (result-y-point new-result)
-                               (task-image-up-path cur-task)
-                               (task-image-down-path cur-task)
-                               (result-black new-result))
-                       (force-output out)
-                       (bt:with-lock-held (lock)
-                         (setf results (append results
-                                               (list new-result))))
-                       ;;(format out "~% results ~A" results)
-                       ;; идем снова брать таск
-                       (go top)))))))))
+  (in-package  #:cl-autogui)
+
+  (defun append-image (image-up image-down y-point)
+    (destructuring-bind (height-down width-down &optional colors-down)
+        (array-dimensions image-down)
+      (let* ((new-height (+ height-down y-point))
+             (new-dims (if (null colors-down)
+                           (list new-height width-down)
+                           (list new-height width-down colors-down)))
+             (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
+        ;; макрос для прохода по блоку точек
+        (macrolet ((cycle ((py px height width &optional &body newline)
+                           &body body)
+                     `(do ((qy ,py (incf qy)))
+                          ((= qy ,height))
+                        (do ((qx ,px (incf qx)))
+                            ((= qx ,width))
+                          ,@body)
+                        ,@newline)))
+          ;; копируем первую картинку в новый массив
+          ;; от ее начала до точки склейки, или до ее конца,
+          ;; смотря что случится раньше
+          (if (null colors-down)  ;; TODO: тут надо проверять цвета первой картинки
+              ;;(cycle (0 0 (min height-down y-point) width-down)
+              (cycle (0 0 y-point width-down)
+                     (setf (aref image-new qy qx)
+                           (aref image-up qy qx)))
+              ;; else
+              (cycle (0 0 y-point width-down)
+                     (do ((qz 0 (incf qz)))
+                         ((= qz colors-down))
+                       (setf (aref image-new qy qx qz)
+                             (aref image-up qy qx qz)))))
+          ;; копируем вторую картинку в новый массив
+          ;; от ее начала до конца
+          (if (null colors-down)
+              (let ((new-y y-point))
+                (cycle (0 0 height-down width-down (incf new-y))
+                       (setf (aref image-new new-y qx)
+                             (aref image-down qy qx))))
+              ;; else
+              (let ((new-y y-point))
+                (cycle (0 0 height-down width-down (incf new-y))
+                       (do ((rz 0 (incf rz)))
+                           ((= rz colors-down))
+                         (setf (aref image-new new-y qx rz)
+                               (aref image-down qy qx rz)))))))
+        image-new)))
+
+  ;; (block test-append-image-fullcolor
+  ;;   (let* ((arr1 (x-snapshot :x 0 :y 0 :width 755 :height 300))
+  ;;          (arr2 (x-snapshot :x 100 :y 100 :width 755 :height 300))
+  ;;          (array (append-image arr1 arr2 200)))
+  ;;     (destructuring-bind (height width  &rest rest)
+  ;;         (array-dimensions array)
+  ;;       (save-png width height "~/Pictures/result.png" array))))
+
+
+  ;; (block test-append-image-grayscale
+  ;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
+  ;;          (arr2 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
+  ;;          (array (append-image arr1 arr2 200)))
+  ;;     (destructuring-bind (height width  &rest rest)
+  ;;         (array-dimensions array)
+  ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
+
+  <<analysis>>
 #+END_SRC
 
+*** Анализ изображений
 
+~Необходимые понятия:~
+~область наложения~ - область, где одно изображение накладывается
+на другое. Область наложения не может иметь бОльшую высоту, чем высота накладываемого
+изображения.
 
-** Нюанс №1. Скорость.
+~общий пулл результатов~ - список, который содержит в себе лучшие результаты
+для всех обработанных картинок и массивы самих картинок
+
+~текущий пулл результатов~ - список, который содержит в себе все результаты анализа
+текущей пары картинок
+~image-up~ это изображение, которое находится выше по рулону страницы выдачи. Это
+просто ранее полученное изображение. При наложении мы будем накладывать НА него
+~image-down~ - это более позднее изображение, находится ниже по рулону. ПРи наложениее
+мы будем накладывать ЕГО.
+
+~Зачем вообще анализировать изображения?~
+Нам надо как-то склеить все изображения в общий рулон. Для этого надо знать, куда
+клеить каждое изображение.
+
+~Как мы найдем подходящее место для склейки?~
+Будем накладывать последний скрин на предущий снизу вверх, строка за строкой, пока не
+кончится высота последнего скрина, считать, сколько пикселей "почернело" из-за xor-a и
+сохранять результат в текущий пулл результатов. После того, как весь цикл накладывания пройден,
+выберем наилучший результат, а затем склеим.
+
+В качестве результата единичного анализа будем сохранять кол-во черных пискселей,
+кол-во белых пикселей и координату ~Y~, на которой это кол-во было получено в
+виде cons-пары: (( черные_точки . белые точки ). y-point).
+
+***** сжатие массива: make-bit-image
 
 Анализировать полноцветные иображения жутко долго и энергозатратно. Поэтму мы будем
 сначала их бинаризировать, а затем превращать в битовые массивы.
@@ -1059,6 +1161,8 @@ NB: По какой-то странной причине (предположит
   ;;              (make-bit-image (load-png "~/Pictures/test-bin.png"))))
   ;;        (format t "~% ~A" bit-arr1))))
 #+END_SRC
+
+***** накладывание изображений с помощью xor: xor-area и append-xor
 
 Теперь, когда мы получили битовый массив, хорошо бы разобраться с xor-ом. Для этого
 напишем две функции: ~append-xor~ и ~xor-area~.
@@ -1258,113 +1362,13 @@ xor-area теперь может работать с картинками люб
 
 #+END_SRC
 
-** Нюанс №2. Нахождение самого черного изображения.
+***** анализ изображений: analysis
 
-Необходимые понятия:
-~область наложения~ - область, где одно изображение накладывается
-на другое. Область наложения не может иметь бОльшую высоту, чем высота накладываемого
-изображения.
+Ну отксорили мы каждое изображение по энному поличеству раз. Что дальше?
+Надо проанализировать, на каком y-point наложение ксором дало макисмально "черный"
+результат. Так мы выясним, где наложение дало максимальное совпадение картинок.
 
-~общий пулл результатов~ - список, который содержит в себе лучшие результаты
-для всех обработанных картинок и массивы самих картинок
-
-~текущий пулл результатов~ - список, который содержит в себе все результаты анализа
-текущей пары картинок
-~image-up~ это изображение, которое находится выше по рулону страницы выдачи. Это
-просто ранее полученное изображение. При наложении мы будем накладывать НА него
-~image-down~ - это более позднее изображение, находится ниже по рулону. ПРи наложениее
-мы будем накладывать ЕГО.
-
-Как найти наиболее подходящее изображение?
-Будем накладывать последний скрин на предущий снизу вверх, строка за строкой, пока не
-кончится высота последнего скрина, считать, сколько пикселей "почернело" из-за xor-a и
-сохранять результат в текущий пулл результатов. После того, как весь цикл накладывания пройден,
-выберем наилучший результат, а затем склеим.
-
-В качестве результата единичного анализа будем сохранять кол-во черных пискселей,
-кол-во белых пикселей и координату ~Y~, на которой это кол-во было получено в
-виде cons-пары: (( черные_точки . белые точки ). y-point).
-
-Пожалуй, начнем с наиболее простого: склейка.
-
-append-image принимает 2 массива с изображениями, которые должны иметь одинаковую
-ширину и кол-во байт на пиксель, точку, от которой будет производиться склейка,
-и возвращает склеенный массив.
-
-#+NAME: append-image
-#+BEGIN_SRC lisp :noweb yes
-  (in-package  #:cl-autogui)
-
-  (defun append-image (image-up image-down y-point)
-    (destructuring-bind (height-down width-down &optional colors-down)
-        (array-dimensions image-down)
-      (let* ((new-height (+ height-down y-point))
-             (new-dims (if (null colors-down)
-                           (list new-height width-down)
-                           (list new-height width-down colors-down)))
-             (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
-        ;; макрос для прохода по блоку точек
-        (macrolet ((cycle ((py px height width &optional &body newline)
-                           &body body)
-                     `(do ((qy ,py (incf qy)))
-                          ((= qy ,height))
-                        (do ((qx ,px (incf qx)))
-                            ((= qx ,width))
-                          ,@body)
-                        ,@newline)))
-          ;; копируем первую картинку в новый массив
-          ;; от ее начала до точки склейки, или до ее конца,
-          ;; смотря что случится раньше
-          (if (null colors-down)  ;; TODO: тут надо проверять цвета первой картинки
-              ;;(cycle (0 0 (min height-down y-point) width-down)
-              (cycle (0 0 y-point width-down)
-                     (setf (aref image-new qy qx)
-                           (aref image-up qy qx)))
-              ;; else
-              (cycle (0 0 y-point width-down)
-                     (do ((qz 0 (incf qz)))
-                         ((= qz colors-down))
-                       (setf (aref image-new qy qx qz)
-                             (aref image-up qy qx qz)))))
-          ;; копируем вторую картинку в новый массив
-          ;; от ее начала до конца
-          (if (null colors-down)
-              (let ((new-y y-point))
-                (cycle (0 0 height-down width-down (incf new-y))
-                       (setf (aref image-new new-y qx)
-                             (aref image-down qy qx))))
-              ;; else
-              (let ((new-y y-point))
-                (cycle (0 0 height-down width-down (incf new-y))
-                       (do ((rz 0 (incf rz)))
-                           ((= rz colors-down))
-                         (setf (aref image-new new-y qx rz)
-                               (aref image-down qy qx rz)))))))
-        image-new)))
-
-  ;; (block test-append-image-fullcolor
-  ;;   (let* ((arr1 (x-snapshot :x 0 :y 0 :width 755 :height 300))
-  ;;          (arr2 (x-snapshot :x 100 :y 100 :width 755 :height 300))
-  ;;          (array (append-image arr1 arr2 200)))
-  ;;     (destructuring-bind (height width  &rest rest)
-  ;;         (array-dimensions array)
-  ;;       (save-png width height "~/Pictures/result.png" array))))
-
-
-  ;; (block test-append-image-grayscale
-  ;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
-  ;;          (arr2 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
-  ;;          (array (append-image arr1 arr2 200)))
-  ;;     (destructuring-bind (height width  &rest rest)
-  ;;         (array-dimensions array)
-  ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
-
-  <<analysis>>
-#+END_SRC
-
-** Нюанс №3. Анализ изображений.
-
-Собственно, а как мы будем анализировать-то?
+~Как мы будем анализировать?~
 Во-первых, область наложения у нас меняется, мы ж снизу вверх двигаемся, значит, она
 увеличивается. Значит, просто считать черные пиксели нельзя, ведь чем больше
 изображение, тем больше там черных пикселей окажется. А, во-вторых, считать более 600
@@ -1373,7 +1377,7 @@ append-image принимает 2 массива с изображениями, 
 
 Поэтому мы установим порог "нечерных" пикселей, выше которого подниматься нельзя. В
 случае, если этот порог будет превышен, мы перестаем считать и поднимаемся выше, не
-занося ничего в пулл результатов.
+занося ничего в список результатов.
 
 Для этого нам нужна функция analysis. Она принимает уже отксоренное изображение, точку
 наложения, откуда будет производить анализ и порог белых пикселей, который по
@@ -1399,7 +1403,6 @@ append-image принимает 2 массива с изображениями, 
                  (black 0)
                  ;; общее кол-во пикселей в области наложения
                  (pix-amount (* intesect-height width)))
-            ;; (format t "~% intersect-height ~A" intesect-height)
             ;; высчитываем максимально допустимое количество белых пикселей
             (setf border (* (float (/ border 100)) pix-amount))
             ;;(format t "~% intesect-height ~A " intesect-height)
@@ -1448,6 +1451,124 @@ append-image принимает 2 массива с изображениями, 
   ;;     (format t " ~% results ~A" results)))
 #+END_SRC
 
+***** функция потока
+
+Функция анализирующего потока:
+параметров не принимет, внутри себя использует 2 общих для всех потоков
+ресурса:
+- пулл тасков
+- общий пулл результатов
+- переменная ~cnt~, которая служит указателем на незанятые таски
+
+Алгоритм действия анализирующего потока:
+~начало~
+- если есть таск, взять 1
+- флаг last? = t?
+ДА!
+- прекращаем анализировать, выходим (эта проверка нужна, чтоб не анализировать
+  одинаковые скрины, даже если такси по ним есть,
+  если мы знаем, что уже достигли конца страницы выдачи)
+ НЕТ!
+- таск взят?
+НЕТ!
+- таски есть?
+нет!
+- ждем 6 сек
+- Таски есть?
+нет!
+- выход
+ИНАЧЕ
+- вернуться на ~начало~
+~TOP~
+- вытащить данный из таска в локальные переменные
+- запустить обработку таска
+- найти лучший результат из текущего пул результатов
+- создать новую структуру результата, записать в нее: y-point лучшего
+  результата, кол-во черных точек лучшего результата, image-up,
+  image-down
+- запушить новый результат в общий пулл результатов
+- вернуться на ~начало~
+
+#+NAME: thread
+#+BEGIN_SRC lisp :noweb yes
+  (lambda ()
+    (with-open-file (out (format nil "thread~A" i) :direction :output
+                         :if-exists :supersede)
+      ;; (format out "~% ~A" tasks)
+      (tagbody
+       top
+         (format out "~% thread ~A" t-name)
+         (format out "~% tasks ~A"  (length tasks))
+         ;; если таск есть, забираем немедленно
+         (let ((cur-task (unless (null tasks)
+                           (bt:with-lock-held (lock)
+                             (pop tasks)))))
+           ;; (format out "~% length tasks ~A" (length tasks))
+           ;; ОЖИДАЕМ ТАСКИ
+           (if last?
+               ;; Если установлен флаг LAST - Выходим из потока
+               nil
+               ;; Иначе
+               (if (null cur-task)
+                   ;; THEN: Таск не взят
+                   ;; Таски кончились, надо немного поспать,
+                   ;; а потом проверить снова
+                   (progn
+                     (format out "~% wait for task")
+                     (sleep 6)
+                     ;; если тасков так и нет
+                     (if (null tasks)
+                         ;; выход
+                         nil
+                         ;; иначе идем забирать таск
+                         (go top)))
+                   ;; ELSE: ТАСК ЕСТЬ
+                   ;; Далее я не понимаю зачем это делается и нигде не объяснено..
+                   ;; Ответ: берешь данные из таска, чтоб передерать их в лямбду
+                   ;; которая в таске см блок <<lambda>>
+                   (let* ((image-up    (task-image-up cur-task))
+                          (image-down  (task-image-down cur-task))
+                          (y-points    (task-y-points cur-task))
+                          (fn          (task-fn cur-task))
+                          ;; получаем все результаты анализа
+                          (cur-results (funcall fn image-up image-down y-points)))
+                     (format out " ~% task image-up ~A image-down ~A"
+                             (task-image-up-path cur-task)
+                             (task-image-down-path cur-task))
+                     (force-output out)
+                     ;; сортируем результаты
+                     ;; по количеству черных точек
+                     ;; от самого выского результата до самого низкого
+                     (format out " ~% cur-results ~A" cur-results)
+                     (let* ((best-res (find-best cur-results))
+                            (new-result (make-result
+                                         :white (cdr (car best-res))
+                                         :black (car (car best-res))
+                                         :y-point (cdr best-res)
+                                         :image-up (task-image-up cur-task)
+                                         :image-down (task-image-down cur-task))))
+                       ;;(format out "~% sorted-result ~A" best-res)
+                       ;; выводим результат
+                       (format out "~% ----
+                                    ~% y-point ~A ~% image-up ~A
+                                    ~% image-down ~A
+                                    ~% amount ~A
+                                    ~% ----"
+                               (result-y-point new-result)
+                               (task-image-up-path cur-task)
+                               (task-image-down-path cur-task)
+                               (result-black new-result))
+                       (force-output out)
+                       (bt:with-lock-held (lock)
+                         (setf results (append results
+                                               (list new-result))))
+                       ;;(format out "~% results ~A" results)
+                       ;; идем снова брать таск
+                       (go top)))))))))
+#+END_SRC
+
+
+
 ** Нюанс №4. Сборка.
 
 Как все это собрать и чтоб оно не тормозило?
@@ -1456,122 +1577,9 @@ append-image принимает 2 массива с изображениями, 
 
 Для этого мы создадим пул тасков - заданий для потоков.
 
-Структура таска содержит в себе:
-- список ~y-point~-ов. Это список координат ~Y~ изображения ~image-down~,
-  который нужен, чтоб накладывать ~image-down~ на ~image-up~ построчно,
-  пока изображения ~image-down~ или ~image-up~ не кончатся. В случае
-  вопросов по механизму наложения см ~xor-area~
-- image-up - массив изображения image-up
-- image-down - массив изображения image-down
-- image-up-path - путь к изображению image-up
-- image-down-path - путь к изображению image-down
-- fn - лябда-функция,которая будет исполнять таск
-
-#+NAME: the_task
-#+BEGIN_SRC lisp :noweb yes
-  (defstruct task
-    (y-points '())
-    (image-up nil)
-    (image-down nil)
-    (image-up-path nil)
-    (image-down-path nil)
-    fn)
-#+END_SRC
-
-Мы формируем ~y-points~ следующим образом:
-
-#+NAME: make_y_points
-#+BEGIN_SRC lisp :noweb yes
-  (loop :for pnt :from height-down :downto 0 :collect pnt)
-#+END_SRC
-
-Поскольку ~image-down~ накладывается на ~image-up~, то мы будем
-использовать именно координаты ~Y~ изображния ~image-down~. Они нам нужны
-снизу-доверху.
-
-Лямбда-функция принимает три параметра от таска, который ее
-содержит: image-up, image-down и список y-points. (Я не знаю как дать лямбде доступ к
-полям таска, в котором она сама же находится, по-другому).
-
-Механизм работы:
-- сделать image-up и image-down битовыми, так их скорее анализировать
-- исполнить цикл столько раз, сколько у нас координат Y внутри списка y-points:
-- на каждой итерации цикла отксорить 2 картинки с текущим y-point
-- проанализировать результат ксора
-- это первая итерация цикла?
-Да!
-- вызываем analysis с порогом белых точек по умолчанию
-- если analysis вернул какой-то результат, сохранить его в cur-results
-НЕТ!
-- получаем  порог белых точек из предыдущего результата
-- вызываем analysis с ним
-- если analysis вернул какой-то результат, сохранить его в cur-results
-- после окончания цикла вернуть cur-results
-
-Cur-results нам еще понадобятся
-
-#+NAME: lambda
-#+BEGIN_SRC lisp :noweb yes
-  (lambda (image-up image-down y-points)
-    (let* ((cur-results)
-           (bit-image-up (make-bit-image image-up))
-           (bit-image-down (make-bit-image
-                            image-down)))
-      (do ((i (length y-points) (- i 1)))
-          ((= i 0))
-        (let ((y-point (car y-points)))
-          ;; убираем его из списка y-point-ов
-          (setf y-points (cdr y-points))
-          ;; если это первая итерация цикла и нет данных
-          ;; и никаких результатов еще нет
-          (if (null cur-results)
-              ;; анализируем изображение с текущим y-point
-              ;; и допустимым кол-вом белых точек по умолчанию
-              (let ((amount (analysis
-                             (xor-area bit-image-up
-                                       bit-image-down
-                                       y-point)
-                             y-point)))
-                ;; если какой-то результат получен,
-                (if amount
-                    (progn
-                      (setf cur-results (cons
-                                         (cons
-                                          amount
-                                          y-point)
-                                         cur-results)
-                            ))))
-              ;; если результаты были, получаем новый
-              ;; порог белых точек
-              (let* ((last-result (car cur-results))
-                     (white (cdr (car last-result)))
-                     ;; вызываем анализ с этим порогом
-                     (amount (analysis
-                              (xor-area bit-image-up
-                                        bit-image-down
-                                        y-point)
-                              y-point white)))
-                ;; если какой-то результат получен,
-                (if amount
-                    ;; записываем в в текущий пулл результатов
-                    (progn
-                      (setf cur-results (cons
-                                         (cons amount
-                                               y-point)
-                                         cur-results))
-                      ))))))
-      cur-results
-      ))
-
-#+END_SRC
-
-
 Чтоб не открывать и закрывать
 потоки до бесконечности, создадим пулл из потоков (кол-во ядер - 1),
 которые будут брать задание по очереди и выполнять его.
-
-
-
 
 Пути добавлены для удобства отладки.
 
@@ -1743,12 +1751,19 @@ Cur-results нам еще понадобятся
                        ;; идем снова брать таск
                        (go top)))))))))
 #+END_SRC
+***** Как понять, что страница выдачи кончилась? Функция find-best
 
-Как понять, что данная картинка последняя?
-
-Для этого нам нужен флаг last? и функция find-best
+Флаг last? и функция find-best.
 Флаг изначально установлен в nil, а find-best при нахождении 2х одинаковых картинок
 установит его в t, так мы будем считать, что дошли до конца страницы выдачи.
+
+Как мы считаем, что картинки одинаковые?
+Максимальное кол-во черных точек было достигнуто на нулевом y-point. Иными словами,
+если лучший результат получен на нулевом y-point, мы считаем, что картинки одинаковые.
+
+Как работает find-best?
+Цель: найти лучший результат из списка результатов. Лучший результат - это тот, где черных
+точек больше всего.
 
 На вход она принимает все результаты анализа одного потока, сначала сортирует по
 убыванию черных точек в результате (от самого выского процента до самого низкого),
@@ -1774,21 +1789,25 @@ Cur-results нам еще понадобятся
             (sort thread-results
                   #'(lambda (a b)
                       (> (car (car a)) (car (car b)))))
-             ;; (sort thread-results
-             ;;       #'(lambda (a b)
-             ;;           (> (cdr (car a)) (cdr (car b)))))
              )
            ;; берем лучший из отсортированных
            (best-res (nth 0 sorted-result))
            (i 0))
       (tagbody
        top
+       ;; получаем кол-во черных точек и y-point у лучшего результата
+       ;; и следующего в списке
          (let ((black-best (car (car best-res)))
                (cur-black (car (car (nth i sorted-result))))
                (cur-y (cdr (nth i sorted-result))))
            ;; если кол-во черных точек в результатах одинаковое
            (if (eql black-best cur-black)
                (progn
+                 ;; берем новый результат
+                 ;; это сделано, чтоб если y-point != 0,
+                 ;; сохранить лучший результат с максимально низким y-point
+                 ;; так можно будет склеить картинки максимально правильно,
+                 ;;а не срезать половину
                  (setf best-res (nth i sorted-result))
                  ;; и при этом y-point = 0
                  (if (eql cur-y 0)
