@@ -48,322 +48,445 @@
 
 (defparameter *browser-path*  "/usr/bin/firefox")
 (in-package #:cl-autogui)
-;; (in-package  #:cl-autogui)
-;; 
-;; (defstruct result
-;;   black
-;;   white
-;;   y-point
-;;   image-up image-down)
-;; 
-;; (defstruct append-results
-;;   append-image)
-;; (defstruct task
-;;   (y-points '())
-;;   (image-up nil)
-;;   (image-down nil)
-;;   (image-up-path nil)
-;;   (image-down-path nil)
-;;   fn)
-;; (in-package  #:cl-autogui)
-;; 
-;; (defun open-browser (browser-path url)
-;;   (let ((proc (sb-ext:run-program
-;;                `,browser-path
-;;                `(,url)
-;;                :input :stream :output :stream)))
-;;     (if proc
-;;         (with-open-stream (input (sb-ext:process-input proc))
-;;           (with-open-stream (output (sb-ext:process-output proc))
-;;             (do ((a-line (read-line output nil 'eof)
-;;                          (read-line output nil 'eof)))
-;;                 ((eql a-line 'eof))
-;;               (format t "~A" a-line)
-;;               (force-output output))))
-;;     (format t "~% open-browser: didn't run firefox"))))
-;; 
-;; ;; (block open-browser-test
-;; ;;  (open-browser "/usr/bin/firefox" *hh-teaser-url*))
-;; 
-;; 
-;; 
-;; (in-package  #:cl-autogui)
-;; 
-;; (defun x-size ()
-;;   (with-default-screen (s)
-;;     (values
-;;      (screen-width s)
-;;      (screen-height s))))
-;; 
-;; (defun x-move (x y)
-;;   (if (and (integerp x) (integerp y))
-;;       (with-default-display-force (d)
-;;         (xlib/xtest:fake-motion-event d x y))
-;;       (error "Integer only for position, (x: ~S, y: ~S)" x y)))
-;; 
-;; (defun mklist (obj)
-;;   (if (and
-;;        (listp obj)
-;;        (not (null obj)))
-;;       obj (list obj)))
-;; 
-;; (defmacro defun-with-actions (name params actions &body body)
-;;   ;; "This macro defun a function which witch do mouse or keyboard actions,
-;;   ;; body is called on each action."
-;;   `(defun ,name ,params
-;;      (mapcar
-;;       #'(lambda (action)
-;;           ,@body)
-;;       (mklist ,actions))))
-;; 
-;; (macrolet ((def (name actions)
-;;              `(defun-with-actions ,name
-;;                   (&key (button 1) x y)
-;;                   ,actions
-;;                 (funcall #'perform-mouse-action
-;;                          action button :x x :y y))))
-;;   (def x-mouse-down t)
-;;   (def x-mouse-up nil)
-;;   (def x-click '(t nil))
-;;   (def x-dbclick '(t nil t nil)))
-;; 
-;; (defmacro with-scroll (pos neg clicks x y)
-;;   `(let ((button (cond
-;;                    ((= 0 ,clicks) nil)
-;;                    ((> 0 ,clicks) ,pos)    ; scroll up/right
-;;                    ((< 0 ,clicks) ,neg)))) ; scroll down/left
-;;      (dotimes (_ (abs ,clicks))
-;;        (x-click :button button :x ,x :y ,y))))
-;; 
-;; (defun x-vscroll (clicks &key x y)
-;;   (with-scroll 4 5 clicks x y))
-;; 
-;; (defun x-scroll (clicks &key x y)
-;;   (x-vscroll clicks :x x :y y))
-;; 
-;; (defun x-hscroll (clicks &key x y)
-;;   (with-scroll 7 6 clicks x y))
-;; 
-;; (macrolet ((def (name actions)
-;;              `(defun-with-actions ,name (keycode)
-;;                   ,actions
-;;                 (funcall #'perform-key-action
-;;                          action keycode))))
-;;   (def x-key-down t)
-;;   (def x-key-up nil)
-;;   (def x-press '(t nil)))
-;; 
-;;   (in-package  #:cl-autogui)
-;; 
-;;   ;; (defun perform-mouse-action (press? button &key x y)
-;;   ;;   (and x y (x-move x y))
-;;   ;;   (with-default-display-force (d)
-;;   ;;     (xlib/xtest:fake-button-event d button press?)))
-;; 
-;;   ;; (defun perform-key-action (press? keycode) ; use xev to get keycode
-;;   ;;   (with-default-display-force (d)
-;;   ;;     (xlib/xtest:fake-key-event d keycode press?)))
-;; 
-;; (defun perform-mouse-action (press? button &key x y)
-;;   (and x y (x-move x y))
-;;   (with-default-display-force (d)
-;;     (xlib/xtest:fake-button-event d button press?)))
-;; 
-;; (defun perform-key-action (press? keycode) ; use xev to get keycode
-;;   (with-default-display-force (d)
-;;     (xlib/xtest:fake-key-event d keycode press?)))
-;; 
-;;   ;; (block perform-key-action-test
-;;   ;;   (perform-key-action t 116)
-;;   ;;   (sleep .1)
-;;   ;;   (perform-key-action nil 116))
-;; 
-;;   ;; (block perform-mouse-action-test
-;;   ;;   (perform-mouse-action t *mouse-left* :x 100 :y 100)
-;;   ;;   (sleep .1)
-;;   ;;   (perform-mouse-action nil *mouse-left* :x 100 :y 100))
-;; (in-package  #:cl-autogui)
-;; 
-;; (defun make-bit-image (image-data)
-;;   (destructuring-bind (height width &optional colors)
-;;       (array-dimensions image-data)
-;;     ;; функция может работать только с бинарными изобажениями
-;;     (assert (null colors))
-;;     (let* ((new-width (+ (logior width 7) 1))
-;;            (bit-array (make-array (list height new-width)
-;;                                   :element-type 'bit)))
-;;       (do ((qy 0 (incf qy)))
-;;           ((= qy height))
-;;         (do ((qx 0 (incf qx)))
-;;             ((= qx width))
-;;           ;; если цвет пикселя не белый, считаем,
-;;           ;; что это не фон и заносим в битовый массив 1
-;;           (unless (equal (aref image-data qy qx) 255)
-;;             (setf (bit bit-array qy qx) 1))))
-;;       bit-array)))
-;; 
-;; ;; (block make-bit-image
-;; ;;     (time
-;; ;;      (let* ((bit-arr1
-;; ;;              (make-bit-image (load-png "~/Pictures/test-bin.png"))))
-;; ;;        (format t "~% ~A" bit-arr1))))
-;; (in-package  #:cl-autogui)
-;; 
-;; (defun append-xor (image-up image-down y-point)
-;;   (destructuring-bind (height-up width-up &optional colors-up)
-;;       (array-dimensions image-up)
-;;     (destructuring-bind (height-down width-down &optional colors-down)
-;;         (array-dimensions image-down)
-;;       (assert (equal width-up width-down))
-;;       (assert (equal colors-up colors-down))
-;;       (let* ((new-height (+ height-down y-point))
-;;              (new-dims (if (null colors-down)
-;;                            (list new-height width-down)
-;;                            (list new-height width-down colors-down)))
-;;              (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
-;;         ;; макрос для прохода по блоку точек
-;;         (macrolet ((cycle ((py px height width &optional &body newline)
-;;                            &body body)
-;;                      `(do ((qy ,py (incf qy)))
-;;                           ((= qy ,height))
-;;                         (do ((qx ,px (incf qx)))
-;;                             ((= qx ,width))
-;;                           ,@body)
-;;                         ,@newline)))
-;;           ;; копируем первую картинку в новый массив
-;;           ;; от ее начала до ее конца (NB: тут отличие от append-image)
-;;           (if (null colors-up)
-;;               (cycle (0 0 height-up width-up)
-;;                      (setf (aref image-new qy qx)
-;;                            (aref image-up qy qx)))
-;;               ;; else
-;;               (cycle (0 0 height-up width-up)
-;;                      (do ((qz 0 (incf qz)))
-;;                          ((= qz colors-up))
-;;                        (setf (aref image-new qy qx qz)
-;;                              (aref image-up qy qx qz)))))
-;;           ;; xor-им вторую картинку в новый массив
-;;           ;; от ее начала до конца
-;;           (if (null colors-down)
-;;               (let ((new-y y-point))
-;;                 (cycle (0 0 height-down width-down (incf new-y))
-;;                        (setf (aref image-new new-y qx)
-;;                              (logxor (aref image-new new-y qx)
-;;                                      (aref image-down qy qx)))))
-;;               ;; else
-;;               (let ((new-y y-point))
-;;                 (cycle (0 0 height-down width-down (incf new-y))
-;;                        ;; ксорим 3 цвета
-;;                        (do ((rz 0 (incf rz)))
-;;                            ((= rz colors-down))
-;;                          (setf (aref image-new new-y qx rz)
-;;                                (logxor (aref image-new new-y qx rz)
-;;                                        (aref image-down qy qx rz))))
-;;                        ;; копируем альфа-канал
-;;                        (setf (aref image-new new-y qx 3)
-;;                              (aref image-down qy qx 3))
-;;                        ))))
-;;         image-new))))
-;; 
-;; ;; (time
-;; ;;  (block test-append-xor-fullcolor
-;; ;;    (let* ((arr1 (x-snapshot :x 0 :y 0 :width 500 :height 300))
-;; ;;           (arr2 (x-snapshot :x 0 :y 100 :width 500 :height 300))
-;; ;;           (result (append-xor arr1 arr2 200)))
-;; ;;      (destructuring-bind (height width  &rest rest)
-;; ;;          (array-dimensions result)
-;; ;;        (save-png width height "~/Pictures/result.png" result)))))
-;; 
-;; ;; (block test-append-xor-grayscale
-;; ;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
-;; ;;          (arr2 (binarization (x-snapshot :x 0 :y 100 :width 755 :height 300)))
-;; ;;          (array (append-xor arr1 arr2 200)))
-;; ;;     (destructuring-bind (height width  &rest rest)
-;; ;;         (array-dimensions array)
-;; ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
-;; 
-;; (in-package  #:cl-autogui)
-;; 
-;; (defun xor-area (image-up image-down y-point)
-;;   (destructuring-bind (height-up width-up &optional colors-up)
-;;       (array-dimensions image-up)
-;;     (destructuring-bind (height-down width-down &optional colors-down)
-;;         (array-dimensions image-down)
-;;       ;; (format t "~% height-up ~A width-up ~A height-down ~A width-down ~A y ~A"
-;;       ;;         height-up width-up height-down width-down y-point)
-;;       (assert (equal width-up width-down))
-;;       (assert (equal colors-up colors-down))
-;;       (if (>= y-point height-up)
-;;           nil
-;;           (let* ((new-height (if (> height-up height-down )
-;;                                  (+ height-up y-point)
-;;                                  (+ height-down y-point)))
-;;                  (intersect-area (if (> (- height-up y-point) height-down)
-;;                                      height-down
-;;                                      (- height-up y-point)))
-;;                  (new-dims (if (null colors-down)
-;;                                (list new-height width-down)
-;;                                (list new-height width-down colors-down)))
-;;                  (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
-;;             ;; макрос для прохода по блоку точек
-;;             (macrolet ((cycle ((py px height width &optional &body newline)
-;;                                &body body)
-;;                          `(do ((qy ,py (incf qy)))
-;;                               ((= qy ,height))
-;;                             (do ((qx ,px (incf qx)))
-;;                                 ((= qx ,width))
-;;                               ,@body)
-;;                             ,@newline)))
-;;               ;; для бинарных изображений
-;;               (if (null colors-down)
-;;                   (let ((new-y y-point))
-;;                     ;; (- height-up y-point) = высота области наложения
-;;                     (cycle (0 0 intersect-area width-down (incf new-y))
-;;                            (setf (aref image-new qy qx)
-;;                                  (logxor (aref image-up new-y qx)
-;;                                          (aref image-down qy qx)))))
-;;                   ;; для full-color изображений
-;;                   (let ((new-y y-point))
-;;                     (cycle (0 0 intersect-area width-down (incf new-y))
-;;                            ;; ксорим 3 цвета
-;;                            (do ((rz 0 (incf rz)))
-;;                                ((= rz (- colors-down 1)))
-;;                              (setf (aref image-new qy qx rz)
-;;                                    (logxor (aref image-up new-y qx rz)
-;;                                            (aref image-down qy qx rz))))
-;;                            ;; копируем альфа-канал
-;;                            (setf (aref image-new qy qx 3)
-;;                                  (aref image-down qy qx 3))))))
-;;             image-new)))))
-;; 
-;; ;; (block xor-area-test
-;; ;;   (time
-;; ;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
-;; ;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
-;; ;;          (array (xor-area arr1 arr2 200)))
-;; ;;              (destructuring-bind (height width  &rest rest)
-;; ;;                 (array-dimensions array)
-;; ;;                (save-png width height "~/Pictures/area.png" array :grayscale)))))
-;; 
-;; ;; (time
-;; ;;  (block xor-area-test-with-analysis
-;; ;;    (let* ((arr1  (binarization (x-snapshot :width 300 :height 600) 200))
-;; ;;           (arr2  (binarization (x-snapshot :y 200 :width 300 :height 200) 200))
-;; ;;           (arr1-bin (make-bit-image arr1))
-;; ;;           (arr2-bin (make-bit-image arr2))
-;; ;;           (amount)
-;; ;;           (res))
-;; ;;      (do ((i 0 (incf i)))
-;; ;;          ((= i (array-dimension arr1 0)))
-;; ;;        (setf amount (analysis (xor-area arr1-bin arr2-bin i) i))
-;; ;;        (if (car amount)
-;; ;;            (setf res (cons (cons amount i) res))))
-;; ;;      (setf res (find-best res))
-;; ;;      (let ((app-arr (append-image arr1 arr2 (cdr res))))
-;; ;;        (destructuring-bind (height width  &rest rest)
-;; ;;            (array-dimensions app-arr)
-;; ;;          (save-png width height "~/Pictures/area.png" app-arr :grayscale))))))
-;; 
+(in-package  #:cl-autogui)
+
+(defstruct append-results
+  append-image)
+(defstruct task
+  (y-points '())
+  (image-up nil)
+  (image-down nil)
+  (image-up-path nil)
+  (image-down-path nil)
+  fn)
+(in-package  #:cl-autogui)
+
+(defun open-browser (browser-path url)
+  (let ((proc (sb-ext:run-program
+               `,browser-path
+               `(,url)
+               :input :stream :output :stream)))
+    (if proc
+        (with-open-stream (input (sb-ext:process-input proc))
+          (with-open-stream (output (sb-ext:process-output proc))
+            (do ((a-line (read-line output nil 'eof)
+                         (read-line output nil 'eof)))
+                ((eql a-line 'eof))
+              (format t "~A" a-line)
+              (force-output output))))
+    (format t "~% open-browser: didn't run firefox"))))
+
+;; (block open-browser-test
+;;  (open-browser "/usr/bin/firefox" *hh-teaser-url*))
+
+
+(in-package  #:cl-autogui)
+
+(defun append-image (image-up image-down y-point)
+  (destructuring-bind (height-down width-down &optional colors-down)
+      (array-dimensions image-down)
+    (let* ((new-height (+ height-down y-point))
+           (new-dims (if (null colors-down)
+                         (list new-height width-down)
+                         (list new-height width-down colors-down)))
+           (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
+      ;; макрос для прохода по блоку точек
+      (macrolet ((cycle ((py px height width &optional &body newline)
+                         &body body)
+                   `(do ((qy ,py (incf qy)))
+                        ((= qy ,height))
+                      (do ((qx ,px (incf qx)))
+                          ((= qx ,width))
+                        ,@body)
+                      ,@newline)))
+        ;; копируем первую картинку в новый массив
+        ;; от ее начала до точки склейки, или до ее конца,
+        ;; смотря что случится раньше
+        (if (null colors-down)  ;; TODO: тут надо проверять цвета первой картинки
+            ;;(cycle (0 0 (min height-down y-point) width-down)
+            (cycle (0 0 y-point width-down)
+                   (setf (aref image-new qy qx)
+                         (aref image-up qy qx)))
+            ;; else
+            (cycle (0 0 y-point width-down)
+                   (do ((qz 0 (incf qz)))
+                       ((= qz colors-down))
+                     (setf (aref image-new qy qx qz)
+                           (aref image-up qy qx qz)))))
+        ;; копируем вторую картинку в новый массив
+        ;; от ее начала до конца
+        (if (null colors-down)
+            (let ((new-y y-point))
+              (cycle (0 0 height-down width-down (incf new-y))
+                     (setf (aref image-new new-y qx)
+                           (aref image-down qy qx))))
+            ;; else
+            (let ((new-y y-point))
+              (cycle (0 0 height-down width-down (incf new-y))
+                     (do ((rz 0 (incf rz)))
+                         ((= rz colors-down))
+                       (setf (aref image-new new-y qx rz)
+                             (aref image-down qy qx rz)))))))
+      image-new)))
+
+;; (block test-append-image-fullcolor
+;;   (let* ((arr1 (x-snapshot :x 0 :y 0 :width 755 :height 300))
+;;          (arr2 (x-snapshot :x 100 :y 100 :width 755 :height 300))
+;;          (array (append-image arr1 arr2 200)))
+;;     (destructuring-bind (height width  &rest rest)
+;;         (array-dimensions array)
+;;       (save-png width height "~/Pictures/result.png" array))))
+
+
+;; (block test-append-image-grayscale
+;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
+;;          (arr2 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
+;;          (array (append-image arr1 arr2 200)))
+;;     (destructuring-bind (height width  &rest rest)
+;;         (array-dimensions array)
+;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
+
+(in-package  #:cl-autogui)
+
+(defun analysis (xored-image y-point &optional (border 50))
+  "Принимает отксоренное изображение и y-координату  наложения,
+   т.е. точку, от которой будет производиться анализ.
+   Анализирует кол-во почерневших точек на изображении, возвращает cons-пару типа
+   (% черных точек . y-point)"
+  (if (null xored-image)
+      nil
+      (destructuring-bind (height width &optional colors)
+          (array-dimensions xored-image)
+        ;;(format t "~% y-point ~A height ~A" y-point height)
+        (let* ((intesect-height (- height y-point)) ;; высота пересечения
+               (white 0)
+               (black 0)
+               ;; общее кол-во пикселей в области наложения
+               (pix-amount (* intesect-height width)))
+          ;; высчитываем максимально допустимое количество белых пикселей
+          (setf border (* (float (/ border 100)) pix-amount))
+          ;;(format t "~% intesect-height ~A " intesect-height)
+          ;; если картинки full-color
+          (if colors
+              (do ((qy y-point (incf qy)))
+                  ((= qy height))
+                ;; если кол-во нечерных пикселей больше 25%
+                (if (> white border)
+                    (progn
+                      ;; не анализируя дальше, возвращаем nil
+                      (return-from analysis))
+                    ;; в противном случае анализиуем следующий ряд пикселей
+                    (do ((qx 0 (incf qx)))
+                        ((= qx width))
+                      (when (not (and (eql (aref xored-image qy qx 0) 0)
+                                      (eql (aref xored-image qy qx 1) 0)
+                                      (eql (aref xored-image qy qx 2) 0)))
+                        (incf white)))))
+              ;; то же самое для бинарных изображений
+              (do ((qy y-point (incf qy)))
+                  ((= qy height))
+                (if (> white border)
+                    (progn
+                      (return-from analysis ))
+                    (do ((qx 0 (incf qx)))
+                        ((= qx width))
+                      (when (not (eql (aref xored-image qy qx) 0))
+                        (incf white))))))
+          ;; эта часть выполнится только если все циклы выполнены успешно
+          ;; считаем кол-во черных пикселей
+          (setf black ( - pix-amount white))
+          (let ((result (cons (* (float (/ black pix-amount)) 100)
+                              (* (float (/ white pix-amount)) 100))))
+            ;;(format t " ~% black ~A y-point ~A pixamount ~A" black y-point pix-amount)
+            ;; возвращаем кол-во черных пикселей в процентном выражении
+            result)))))
+
+;; (block analysis-test
+;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
+;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
+;;          (array (xor-area arr1 arr2 200))
+;;          (results (cons (analysis
+;;                          array 200 80)
+;;                         200)))
+;;     (format t " ~% results ~A" results)))
+
+(in-package  #:cl-autogui)
+
+(defun x-size ()
+  (with-default-screen (s)
+    (values
+     (screen-width s)
+     (screen-height s))))
+
+(defun x-move (x y)
+  (if (and (integerp x) (integerp y))
+      (with-default-display-force (d)
+        (xtest:fake-motion-event d x y))
+      (error "Integer only for position, (x: ~S, y: ~S)" x y)))
+
+(defun mklist (obj)
+  (if (and
+       (listp obj)
+       (not (null obj)))
+      obj (list obj)))
+
+(defmacro defun-with-actions (name params actions &body body)
+  ;; "This macro defun a function which witch do mouse or keyboard actions,
+  ;; body is called on each action."
+  `(defun ,name ,params
+     (mapcar
+      #'(lambda (action)
+          ,@body)
+      (mklist ,actions))))
+
+(macrolet ((def (name actions)
+             `(defun-with-actions ,name
+                  (&key (button 1) x y)
+                  ,actions
+                (funcall #'perform-mouse-action
+                         action button :x x :y y))))
+  (def x-mouse-down t)
+  (def x-mouse-up nil)
+  (def x-click '(t nil))
+  (def x-dbclick '(t nil t nil)))
+
+(defmacro with-scroll (pos neg clicks x y)
+  `(let ((button (cond
+                   ((= 0 ,clicks) nil)
+                   ((> 0 ,clicks) ,pos)    ; scroll up/right
+                   ((< 0 ,clicks) ,neg)))) ; scroll down/left
+     (dotimes (_ (abs ,clicks))
+       (x-click :button button :x ,x :y ,y))))
+
+(defun x-vscroll (clicks &key x y)
+  (with-scroll 4 5 clicks x y))
+
+(defun x-scroll (clicks &key x y)
+  (x-vscroll clicks :x x :y y))
+
+(defun x-hscroll (clicks &key x y)
+  (with-scroll 7 6 clicks x y))
+
+(macrolet ((def (name actions)
+             `(defun-with-actions ,name (keycode)
+                  ,actions
+                (funcall #'perform-key-action
+                         action keycode))))
+  (def x-key-down t)
+  (def x-key-up nil)
+  (def x-press '(t nil)))
+
+  (in-package  #:cl-autogui)
+
+  ;; (defun perform-mouse-action (press? button &key x y)
+  ;;   (and x y (x-move x y))
+  ;;   (with-default-display-force (d)
+  ;;     (xtest:fake-button-event d button press?)))
+
+  ;; (defun perform-key-action (press? keycode) ; use xev to get keycode
+  ;;   (with-default-display-force (d)
+  ;;     (xtest:fake-key-event d keycode press?)))
+
+(defun perform-mouse-action (press? button &key x y)
+  (and x y (x-move x y))
+  (with-default-display-force (d)
+    (xtest:fake-button-event d button press?)))
+
+(defun perform-key-action (press? keycode) ; use xev to get keycode
+  (with-default-display-force (d)
+    (xtest:fake-key-event d keycode press?)))
+
+  ;; (block perform-key-action-test
+  ;;   (perform-key-action t 116)
+  ;;   (sleep .1)
+  ;;   (perform-key-action nil 116))
+
+  ;; (block perform-mouse-action-test
+  ;;   (perform-mouse-action t *mouse-left* :x 100 :y 100)
+  ;;   (sleep .1)
+  ;;   (perform-mouse-action nil *mouse-left* :x 100 :y 100))
+(in-package  #:cl-autogui)
+
+(defun make-bit-image (image-data)
+  (destructuring-bind (height width &optional colors)
+      (array-dimensions image-data)
+    ;; функция может работать только с бинарными изобажениями
+    (assert (null colors))
+    (let* ((new-width (+ (logior width 7) 1))
+           (bit-array (make-array (list height new-width)
+                                  :element-type 'bit)))
+      (do ((qy 0 (incf qy)))
+          ((= qy height))
+        (do ((qx 0 (incf qx)))
+            ((= qx width))
+          ;; если цвет пикселя не белый, считаем,
+          ;; что это не фон и заносим в битовый массив 1
+          (unless (equal (aref image-data qy qx) 255)
+            (setf (bit bit-array qy qx) 1))))
+      bit-array)))
+
+;; (block make-bit-image
+;;     (time
+;;      (let* ((bit-arr1
+;;              (make-bit-image (load-png "~/Pictures/test-bin.png"))))
+;;        (format t "~% ~A" bit-arr1))))
+(in-package  #:cl-autogui)
+
+(defun append-xor (image-up image-down y-point)
+  (destructuring-bind (height-up width-up &optional colors-up)
+      (array-dimensions image-up)
+    (destructuring-bind (height-down width-down &optional colors-down)
+        (array-dimensions image-down)
+      (assert (equal width-up width-down))
+      (assert (equal colors-up colors-down))
+      (let* ((new-height (+ height-down y-point))
+             (new-dims (if (null colors-down)
+                           (list new-height width-down)
+                           (list new-height width-down colors-down)))
+             (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
+        ;; макрос для прохода по блоку точек
+        (macrolet ((cycle ((py px height width &optional &body newline)
+                           &body body)
+                     `(do ((qy ,py (incf qy)))
+                          ((= qy ,height))
+                        (do ((qx ,px (incf qx)))
+                            ((= qx ,width))
+                          ,@body)
+                        ,@newline)))
+          ;; копируем первую картинку в новый массив
+          ;; от ее начала до ее конца (NB: тут отличие от append-image)
+          (if (null colors-up)
+              (cycle (0 0 height-up width-up)
+                     (setf (aref image-new qy qx)
+                           (aref image-up qy qx)))
+              ;; else
+              (cycle (0 0 height-up width-up)
+                     (do ((qz 0 (incf qz)))
+                         ((= qz colors-up))
+                       (setf (aref image-new qy qx qz)
+                             (aref image-up qy qx qz)))))
+          ;; xor-им вторую картинку в новый массив
+          ;; от ее начала до конца
+          (if (null colors-down)
+              (let ((new-y y-point))
+                (cycle (0 0 height-down width-down (incf new-y))
+                       (setf (aref image-new new-y qx)
+                             (logxor (aref image-new new-y qx)
+                                     (aref image-down qy qx)))))
+              ;; else
+              (let ((new-y y-point))
+                (cycle (0 0 height-down width-down (incf new-y))
+                       ;; ксорим 3 цвета
+                       (do ((rz 0 (incf rz)))
+                           ((= rz colors-down))
+                         (setf (aref image-new new-y qx rz)
+                               (logxor (aref image-new new-y qx rz)
+                                       (aref image-down qy qx rz))))
+                       ;; копируем альфа-канал
+                       (setf (aref image-new new-y qx 3)
+                             (aref image-down qy qx 3))
+                       ))))
+        image-new))))
+
+;; (time
+;;  (block test-append-xor-fullcolor
+;;    (let* ((arr1 (x-snapshot :x 0 :y 0 :width 500 :height 300))
+;;           (arr2 (x-snapshot :x 0 :y 100 :width 500 :height 300))
+;;           (result (append-xor arr1 arr2 200)))
+;;      (destructuring-bind (height width  &rest rest)
+;;          (array-dimensions result)
+;;        (save-png width height "~/Pictures/result.png" result)))))
+
+;; (block test-append-xor-grayscale
+;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
+;;          (arr2 (binarization (x-snapshot :x 0 :y 100 :width 755 :height 300)))
+;;          (array (append-xor arr1 arr2 200)))
+;;     (destructuring-bind (height width  &rest rest)
+;;         (array-dimensions array)
+;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
+
+(in-package  #:cl-autogui)
+
+(defun xor-area (image-up image-down y-point)
+  (destructuring-bind (height-up width-up &optional colors-up)
+      (array-dimensions image-up)
+    (destructuring-bind (height-down width-down &optional colors-down)
+        (array-dimensions image-down)
+      ;; (format t "~% height-up ~A width-up ~A height-down ~A width-down ~A y ~A"
+      ;;         height-up width-up height-down width-down y-point)
+      (assert (equal width-up width-down))
+      (assert (equal colors-up colors-down))
+      (if (>= y-point height-up)
+          nil
+          (let* ((new-height (if (> height-up height-down )
+                                 (+ height-up y-point)
+                                 (+ height-down y-point)))
+                 (intersect-area (if (> (- height-up y-point) height-down)
+                                     height-down
+                                     (- height-up y-point)))
+                 (new-dims (if (null colors-down)
+                               (list new-height width-down)
+                               (list new-height width-down colors-down)))
+                 (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
+            ;; макрос для прохода по блоку точек
+            (macrolet ((cycle ((py px height width &optional &body newline)
+                               &body body)
+                         `(do ((qy ,py (incf qy)))
+                              ((= qy ,height))
+                            (do ((qx ,px (incf qx)))
+                                ((= qx ,width))
+                              ,@body)
+                            ,@newline)))
+              ;; для бинарных изображений
+              (if (null colors-down)
+                  (let ((new-y y-point))
+                    ;; (- height-up y-point) = высота области наложения
+                    (cycle (0 0 intersect-area width-down (incf new-y))
+                           (setf (aref image-new qy qx)
+                                 (logxor (aref image-up new-y qx)
+                                         (aref image-down qy qx)))))
+                  ;; для full-color изображений
+                  (let ((new-y y-point))
+                    (cycle (0 0 intersect-area width-down (incf new-y))
+                           ;; ксорим 3 цвета
+                           (do ((rz 0 (incf rz)))
+                               ((= rz (- colors-down 1)))
+                             (setf (aref image-new qy qx rz)
+                                   (logxor (aref image-up new-y qx rz)
+                                           (aref image-down qy qx rz))))
+                           ;; копируем альфа-канал
+                           (setf (aref image-new qy qx 3)
+                                 (aref image-down qy qx 3))))))
+            image-new)))))
+
+;; (block xor-area-test
+;;   (time
+;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
+;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
+;;          (array (xor-area arr1 arr2 200)))
+;;              (destructuring-bind (height width  &rest rest)
+;;                 (array-dimensions array)
+;;                (save-png width height "~/Pictures/area.png" array :grayscale)))))
+
+;; (time
+;;  (block xor-area-test-with-analysis
+;;    (let* ((arr1  (binarization (x-snapshot :width 300 :height 600) 200))
+;;           (arr2  (binarization (x-snapshot :y 200 :width 300 :height 200) 200))
+;;           (arr1-bin (make-bit-image arr1))
+;;           (arr2-bin (make-bit-image arr2))
+;;           (amount)
+;;           (res))
+;;      (do ((i 0 (incf i)))
+;;          ((= i (array-dimension arr1 0)))
+;;        (setf amount (analysis (xor-area arr1-bin arr2-bin i) i))
+;;        (if (car amount)
+;;            (setf res (cons (cons amount i) res))))
+;;      (setf res (find-best res))
+;;      (let ((app-arr (append-image arr1 arr2 (cdr res))))
+;;        (destructuring-bind (height width  &rest rest)
+;;            (array-dimensions app-arr)
+;;          (save-png width height "~/Pictures/area.png" app-arr :grayscale))))))
+
 (in-package #:cl-autogui)
 
 (defparameter *task-queue* nil)
@@ -498,7 +621,7 @@
 (defun x-move (x y)
   (if (and (integerp x) (integerp y))
       (with-default-display-force (d)
-        (xlib/xtest:fake-motion-event d x y))
+        (xtest:fake-motion-event d x y))
       (error "Integer only for position, (x: ~S, y: ~S)" x y)))
 
 (defun mklist (obj)
@@ -558,20 +681,20 @@
   ;; (defun perform-mouse-action (press? button &key x y)
   ;;   (and x y (x-move x y))
   ;;   (with-default-display-force (d)
-  ;;     (xlib/xtest:fake-button-event d button press?)))
+  ;;     (xtest:fake-button-event d button press?)))
 
   ;; (defun perform-key-action (press? keycode) ; use xev to get keycode
   ;;   (with-default-display-force (d)
-  ;;     (xlib/xtest:fake-key-event d keycode press?)))
+  ;;     (xtest:fake-key-event d keycode press?)))
 
 (defun perform-mouse-action (press? button &key x y)
   (and x y (x-move x y))
   (with-default-display-force (d)
-    (xlib/xtest:fake-button-event d button press?)))
+    (xtest:fake-button-event d button press?)))
 
 (defun perform-key-action (press? keycode) ; use xev to get keycode
   (with-default-display-force (d)
-    (xlib/xtest:fake-key-event d keycode press?)))
+    (xtest:fake-key-event d keycode press?)))
 
   ;; (block perform-key-action-test
   ;;   (perform-key-action t 116)
@@ -750,11 +873,11 @@
              ;; Уведомим потребителей об обновлении очереди задач
              (bt:condition-notify cv))))
        ;; Теперь можно поспать, чтобы не быть слишком быстрым
-       (sleep 2))))
+       (sleep 5))))
 (in-package #:cl-autogui)
 
 (defparameter *task-cnt* 0)
-(defparameter *task-limit* 5)
+(defparameter *task-limit* 10)
 
 (in-package #:cl-autogui)
 
@@ -775,6 +898,28 @@
   (let ((producer (find-thread-by-name "producer-thread")))
     (when producer
       (bt:destroy-thread producer))))
+
+(defun kill-all-threads (outlock msg cv-roll)
+  (bt:with-lock-held (outlock)
+    (format t "~% ~A reported: ~A; stop all threads"
+            (bt:thread-name (bt:current-thread))
+            msg)
+    (finish-output))
+  ;; KILL ALL THREADS!
+  (mapcar #'(lambda (pair)
+              (bt:destroy-thread (cadr pair)))
+          ;; Отфильтровываем всех консюмеров
+          (remove-if-not #'car
+                         ;; Превращаем его в список кортежей
+                         ;; Первый элемент каждого кортежа - является ли поток консюмером
+                         (mapcar #'(lambda (th)
+                                     (let* ((name (bt:thread-name th))
+                                            (bool (equal "consum" (subseq name 0 6))))
+                                       (list bool th name)))
+                                 ;; Берем список потоков
+                                 (bt:all-threads))))
+  ;; запуск склейки!
+  (bt:condition-notify cv-roll))
 
 (in-package #:cl-autogui)
 
@@ -1012,10 +1157,8 @@
                ;; и при этом y-point = 0
                (if (eql cur-y 0)
                    ;; мы нашли последнюю пару картинок
-                   (progn
-                     (setf *last?* t)
                      (return-from
-                      find-best (nth i sorted-result)))
+                      find-best (values (nth i sorted-result) t))
                    ;; y-point != 0
                    (progn
                      ;; проверяем дальше
@@ -1024,6 +1167,45 @@
              ;; кол-во черных точек в результатах не одинаковое
              (return-from
               find-best best-res))))))
+
+(defun create-roll (path own-cv lock)
+  (loop
+     (bt:with-lock-held (lock)
+       ;; wait for access
+       (bt:condition-wait own-cv lock)
+       ;; take first img-pair
+       (let* ((cur-result (pop *results-queue*))
+              (cur-y-point (result-y-point cur-result))
+              (cur-image-up (result-image-up cur-result))
+              (cur-image-down (result-image-down cur-result))
+              ;; append it
+              ;; не считаем смещение, потому что на первой склейке его просто нет
+              (roll (append-image cur-image-up cur-image-down cur-y-point)))
+         ;; do till end of result-queue
+         (do ((i (length *results-queue*) (decf i)))
+             (( = i 0))
+           ;; take img-pair
+           (setf cur-result (pop *results-queue*)
+                 cur-image-down (result-image-down cur-result)
+                 cur-y-point (result-y-point cur-result))
+           ;; find height of roll (нам это нужно, чтоб считать смещение)
+           (destructuring-bind (height-roll width-roll &optional colors-roll)
+               (array-dimensions roll)
+             ;; offset
+             (let ((new-y-point (+ cur-y-point height-roll)))
+               (setf roll (append-image roll cur-image-down new-y-point)))))
+         ;; save roll
+         (destructuring-bind (height-roll width-roll &optional colors-roll)
+             (array-dimensions roll)
+           (if colors-roll
+               (progn
+                 (save-png width-roll height-roll path roll)
+                 (return-from create-roll t))
+               (progn
+                 (save-png width-roll height-roll path roll :grayscale)
+                 (return-from create-roll t))))))))
+
+
 (in-package  #:cl-autogui)
 
 (defstruct result
@@ -1032,7 +1214,7 @@
   y-point
   image-up image-down)
 
-(defun consumer (cv task-queue-lock outlock)
+(defun consumer (cv cv-roll task-queue-lock outlock)
   (unless (bt:thread-alive-p (find-thread-by-name "producer-thread"))
     (bt:destroy-thread (bt:current-thread)))
   (bt:with-lock-held (outlock)
@@ -1064,15 +1246,16 @@
                 (let* ((cur-results (funcall (task-fn cur-task)
                                              (task-image-up cur-task)
                                              (task-image-down cur-task)
-                                             (task-y-points cur-task)))
-                       (best-res (find-best cur-results))
-                       (new-result (make-result
-                                    :white (cdr (car best-res))
-                                    :black (car (car best-res))
-                                    :y-point (cdr best-res)
-                                    :image-up (task-image-up cur-task)
-                                    :image-down (task-image-down cur-task))))
-
+                                             (task-y-points cur-task))))
+                  ;; find best results after analize
+                  (multiple-value-bind (best-res last?)
+                    (find-best cur-results)
+                    (let ((new-result (make-result
+                                       :white (cdr (car best-res))
+                                       :black (car (car best-res))
+                                       :y-point (cdr best-res)
+                                       :image-up (task-image-up cur-task)
+                                       :image-down (task-image-down cur-task))))
                   (bt:with-lock-held (outlock)
                     (setf *results-queue* (append *results-queue* (list new-result))))
                   (bt:with-lock-held (outlock)
@@ -1081,35 +1264,50 @@
                             (bt:thread-name (bt:current-thread)) best-res
                             (cons (task-image-up-path cur-task)
                                   (task-image-down-path cur-task))
-                            (length *results-queue*) (length *task-queue*)))
-                  ;; increment thread-local task-cnt
-                  (bt:with-lock-held (outlock)
-                    (incf *task-cnt*))
-                  ;; check task limit
-                  (when (> *task-cnt* *task-limit*)
-                    (stop-report-and-kill-producer
-                     outlock "task limit has been reached")
-                    (return))
-                  ;; check overload
-                  (when (> (length *task-queue*) 5)
-                    (stop-report-and-kill-producer
-                     outlock "many tasks in queue")
-                    (return))))))))
+                            (length *results-queue*) (length *task-queue*))))
+                    ;; was it last image?
+                    (if last?
+                        ;; yes
+                        ;; kill all threads
+                        (kill-all-threads
+                         outlock "last image!" cv-roll)
+                        ;; increment thread-local task-cnt
+                        ))))))))
+
+                        ;; (progn
+                        ;;   (bt:with-lock-held (outlock)
+                        ;;     (incf *task-cnt*))
+                        ;;   ;; check task limit
+                        ;;   (when (> *task-cnt* *task-limit*)
+                        ;;     (stop-report-and-kill-producer
+                        ;;      outlock "task limit has been reached")
+                        ;;     (create-roll "~/Pictures/roll.png")
+                        ;;     (return))
+                        ;;   ;; check overload
+                        ;;   (when (> (length *task-queue*) 5)
+                        ;;     (stop-report-and-kill-producer
+                        ;;      outlock "many tasks in queue")
+                        ;;     (return)))))))))
 
 (defun create-threads (num-of-cores)
   (let* ((cv              (bt:make-condition-variable))
+         (cv-roll         (bt:make-condition-variable))
          (task-queue-lock (bt:make-lock "task-queue-lock"))
+         (results-queue-lock (bt:make-lock "results-queue-lock"))
          (outlock         (bt:make-lock "output-lock"))
          (thread-pool))
     (bt:make-thread (lambda ()
                       (producer cv task-queue-lock))
                     :name "producer-thread")
+    (bt:make-thread (lambda ()
+                      (create-roll "~/Pictures/roll.png" cv-roll results-queue-lock))
+                    :name "roll-thread")
     (format t "~%thread 'producer-thread' created")
     (do ((th-idx 0 (incf th-idx)))
         ((= th-idx (- num-of-cores 1)))
       (format t "~%thread 'consumer~A' created" th-idx)
       (push (bt:make-thread (lambda ()
-                              (consumer cv task-queue-lock outlock))
+                              (consumer cv cv-roll task-queue-lock outlock))
                             :name (format nil "consumer-~A" th-idx)
                             :initial-bindings
                             `((*standard-output* . ,*standard-output*)
