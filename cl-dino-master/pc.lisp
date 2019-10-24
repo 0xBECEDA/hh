@@ -52,6 +52,13 @@
 
 (defstruct append-results
   append-image)
+  (in-package  #:cl-autogui)
+  
+  (defstruct result
+    black
+    white
+    y-point
+    image-up image-down)
 (defstruct task
   (y-points '())
   (image-up nil)
@@ -85,11 +92,17 @@
 (defun append-image (image-up image-down y-point)
   (destructuring-bind (height-down width-down &optional colors-down)
       (array-dimensions image-down)
+    ;; (destructuring-bind (height-up width-up &optional colors-up)
+    ;;     (array-dimensions image-up)
     (let* ((new-height (+ height-down y-point))
            (new-dims (if (null colors-down)
                          (list new-height width-down)
                          (list new-height width-down colors-down)))
            (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
+      (destructuring-bind (height-new width-new &optional colors-new)
+          (array-dimensions image-new)
+        (format t "~%  append-image: height-new ~A width-new ~A y-point ~A"
+                height-new width-new y-point))
       ;; макрос для прохода по блоку точек
       (macrolet ((cycle ((py px height width &optional &body newline)
                          &body body)
@@ -139,76 +152,12 @@
 
 
 ;; (block test-append-image-grayscale
-;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
-;;          (arr2 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
-;;          (array (append-image arr1 arr2 200)))
+;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 600)))
+;;          (arr2 (binarization (x-snapshot :x 0 :y 555 :width 755 :height 130)))
+;;          (array (append-image arr1 arr2 600)))
 ;;     (destructuring-bind (height width  &rest rest)
 ;;         (array-dimensions array)
 ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
-
-(in-package  #:cl-autogui)
-
-(defun analysis (xored-image y-point &optional (border 50))
-  "Принимает отксоренное изображение и y-координату  наложения,
-   т.е. точку, от которой будет производиться анализ.
-   Анализирует кол-во почерневших точек на изображении, возвращает cons-пару типа
-   (% черных точек . y-point)"
-  (if (null xored-image)
-      nil
-      (destructuring-bind (height width &optional colors)
-          (array-dimensions xored-image)
-        ;;(format t "~% y-point ~A height ~A" y-point height)
-        (let* ((intesect-height (- height y-point)) ;; высота пересечения
-               (white 0)
-               (black 0)
-               ;; общее кол-во пикселей в области наложения
-               (pix-amount (* intesect-height width)))
-          ;; высчитываем максимально допустимое количество белых пикселей
-          (setf border (* (float (/ border 100)) pix-amount))
-          ;;(format t "~% intesect-height ~A " intesect-height)
-          ;; если картинки full-color
-          (if colors
-              (do ((qy y-point (incf qy)))
-                  ((= qy height))
-                ;; если кол-во нечерных пикселей больше 25%
-                (if (> white border)
-                    (progn
-                      ;; не анализируя дальше, возвращаем nil
-                      (return-from analysis))
-                    ;; в противном случае анализиуем следующий ряд пикселей
-                    (do ((qx 0 (incf qx)))
-                        ((= qx width))
-                      (when (not (and (eql (aref xored-image qy qx 0) 0)
-                                      (eql (aref xored-image qy qx 1) 0)
-                                      (eql (aref xored-image qy qx 2) 0)))
-                        (incf white)))))
-              ;; то же самое для бинарных изображений
-              (do ((qy y-point (incf qy)))
-                  ((= qy height))
-                (if (> white border)
-                    (progn
-                      (return-from analysis ))
-                    (do ((qx 0 (incf qx)))
-                        ((= qx width))
-                      (when (not (eql (aref xored-image qy qx) 0))
-                        (incf white))))))
-          ;; эта часть выполнится только если все циклы выполнены успешно
-          ;; считаем кол-во черных пикселей
-          (setf black ( - pix-amount white))
-          (let ((result (cons (* (float (/ black pix-amount)) 100)
-                              (* (float (/ white pix-amount)) 100))))
-            ;;(format t " ~% black ~A y-point ~A pixamount ~A" black y-point pix-amount)
-            ;; возвращаем кол-во черных пикселей в процентном выражении
-            result)))))
-
-;; (block analysis-test
-;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
-;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
-;;          (array (xor-area arr1 arr2 200))
-;;          (results (cons (analysis
-;;                          array 200 80)
-;;                         200)))
-;;     (format t " ~% results ~A" results)))
 
 (in-package  #:cl-autogui)
 
@@ -404,88 +353,6 @@
 ;;     (destructuring-bind (height width  &rest rest)
 ;;         (array-dimensions array)
 ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
-
-(in-package  #:cl-autogui)
-
-(defun xor-area (image-up image-down y-point)
-  (destructuring-bind (height-up width-up &optional colors-up)
-      (array-dimensions image-up)
-    (destructuring-bind (height-down width-down &optional colors-down)
-        (array-dimensions image-down)
-      ;; (format t "~% height-up ~A width-up ~A height-down ~A width-down ~A y ~A"
-      ;;         height-up width-up height-down width-down y-point)
-      (assert (equal width-up width-down))
-      (assert (equal colors-up colors-down))
-      (if (>= y-point height-up)
-          nil
-          (let* ((new-height (if (> height-up height-down )
-                                 (+ height-up y-point)
-                                 (+ height-down y-point)))
-                 (intersect-area (if (> (- height-up y-point) height-down)
-                                     height-down
-                                     (- height-up y-point)))
-                 (new-dims (if (null colors-down)
-                               (list new-height width-down)
-                               (list new-height width-down colors-down)))
-                 (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
-            ;; макрос для прохода по блоку точек
-            (macrolet ((cycle ((py px height width &optional &body newline)
-                               &body body)
-                         `(do ((qy ,py (incf qy)))
-                              ((= qy ,height))
-                            (do ((qx ,px (incf qx)))
-                                ((= qx ,width))
-                              ,@body)
-                            ,@newline)))
-              ;; для бинарных изображений
-              (if (null colors-down)
-                  (let ((new-y y-point))
-                    ;; (- height-up y-point) = высота области наложения
-                    (cycle (0 0 intersect-area width-down (incf new-y))
-                           (setf (aref image-new qy qx)
-                                 (logxor (aref image-up new-y qx)
-                                         (aref image-down qy qx)))))
-                  ;; для full-color изображений
-                  (let ((new-y y-point))
-                    (cycle (0 0 intersect-area width-down (incf new-y))
-                           ;; ксорим 3 цвета
-                           (do ((rz 0 (incf rz)))
-                               ((= rz (- colors-down 1)))
-                             (setf (aref image-new qy qx rz)
-                                   (logxor (aref image-up new-y qx rz)
-                                           (aref image-down qy qx rz))))
-                           ;; копируем альфа-канал
-                           (setf (aref image-new qy qx 3)
-                                 (aref image-down qy qx 3))))))
-            image-new)))))
-
-;; (block xor-area-test
-;;   (time
-;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
-;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
-;;          (array (xor-area arr1 arr2 200)))
-;;              (destructuring-bind (height width  &rest rest)
-;;                 (array-dimensions array)
-;;                (save-png width height "~/Pictures/area.png" array :grayscale)))))
-
-;; (time
-;;  (block xor-area-test-with-analysis
-;;    (let* ((arr1  (binarization (x-snapshot :width 300 :height 600) 200))
-;;           (arr2  (binarization (x-snapshot :y 200 :width 300 :height 200) 200))
-;;           (arr1-bin (make-bit-image arr1))
-;;           (arr2-bin (make-bit-image arr2))
-;;           (amount)
-;;           (res))
-;;      (do ((i 0 (incf i)))
-;;          ((= i (array-dimension arr1 0)))
-;;        (setf amount (analysis (xor-area arr1-bin arr2-bin i) i))
-;;        (if (car amount)
-;;            (setf res (cons (cons amount i) res))))
-;;      (setf res (find-best res))
-;;      (let ((app-arr (append-image arr1 arr2 (cdr res))))
-;;        (destructuring-bind (height width  &rest rest)
-;;            (array-dimensions app-arr)
-;;          (save-png width height "~/Pictures/area.png" app-arr :grayscale))))))
 
 (in-package #:cl-autogui)
 
@@ -899,7 +766,7 @@
     (when producer
       (bt:destroy-thread producer))))
 
-(defun kill-all-threads (outlock msg cv-roll)
+(defun kill-all-consumers (outlock msg)
   (bt:with-lock-held (outlock)
     (format t "~% ~A reported: ~A; stop all threads"
             (bt:thread-name (bt:current-thread))
@@ -917,76 +784,85 @@
                                             (bool (equal "consum" (subseq name 0 6))))
                                        (list bool th name)))
                                  ;; Берем список потоков
-                                 (bt:all-threads))))
-  ;; запуск склейки!
-  (bt:condition-notify cv-roll))
+                                 (bt:all-threads)))))
 
 (in-package #:cl-autogui)
 
+  (in-package  #:cl-autogui)
+
+  (defun analysis (xored-image y-point &optional (border 50))
+    "Принимает отксоренное изображение и y-координату  наложения,
+     т.е. точку, от которой будет производиться анализ.
+     Анализирует кол-во почерневших точек на изображении, возвращает cons-пару типа
+     (% черных точек . y-point)"
+    (if (null xored-image)
+        nil
+        (destructuring-bind (height width &optional colors)
+            (array-dimensions xored-image)
+          (format t "~% y-point ~A height ~A" y-point height)
+          (let* ((intesect-height height) ;; высота пересечения
+                 (white 0)
+                 (black 0)
+                 ;; общее кол-во пикселей в области наложения
+                 (pix-amount (* intesect-height width)))
+            ;; высчитываем максимально допустимое количество белых пикселей
+            (setf border (* (float (/ border 100)) pix-amount))
+            (format t "~% intesect-height ~A " intesect-height)
+            ;; если картинки full-color
+            (if colors
+                (do ((qy y-point (incf qy)))
+                    ((= qy height))
+                  ;; если кол-во нечерных пикселей больше 25%
+                  (if (> white border)
+                      (progn
+                        ;; не анализируя дальше, возвращаем nil
+                        (return-from analysis))
+                      ;; в противном случае анализиуем следующий ряд пикселей
+                      (do ((qx 0 (incf qx)))
+                          ((= qx width))
+                        (when (not (and (eql (aref xored-image qy qx 0) 0)
+                                        (eql (aref xored-image qy qx 1) 0)
+                                        (eql (aref xored-image qy qx 2) 0)))
+                          (incf white)))))
+                ;; то же самое для бинарных изображений
+                (do ((qy 0 (incf qy)))
+                    ((= qy height))
+                  (if (> white border)
+                      (progn
+                        (return-from analysis ))
+                      (do ((qx 0 (incf qx)))
+                          ((= qx width))
+                        (when (not (eql (aref xored-image qy qx) 0))
+                          (incf white))))))
+            ;; эта часть выполнится только если все циклы выполнены успешно
+            ;; считаем кол-во черных пикселей
+            (setf black ( - pix-amount white))
+            (let ((result (cons (* (float (/ black pix-amount)) 100)
+                                (* (float (/ white pix-amount)) 100))))
+              ;;(format t " ~% black ~A y-point ~A pixamount ~A" black y-point pix-amount)
+              ;; возвращаем кол-во черных пикселей в процентном выражении
+              result)))))
+
+;; (block find-best-test
+;;   (let* ((arr1 (make-bit-image (binarization (load-png "~/Pictures/img-2"))))
+;;          (arr2 (make-bit-image (binarization (load-png "~/Pictures/img-3"))))
+;;          (res)
+;;          (amount))
+;;     (do ((i 0 (incf i)))
+;;         ((= i (array-dimension arr1 0)))
+;;       (setf amount (analysis (xor-area arr1 arr2 i) i))
+;;       (if (car amount)
+;;           (setf res (cons (cons amount i) res))))
+;;     (format t "~% res ~A" res)
+;;     (setf res (find-best res))
+;;     (format t "~% best-res ~A" res)
+;;     (let ((app-arr (append-image (load-png "~/Pictures/img-2")
+;;                                  (load-png "~/Pictures/img-3") (cdr res))))
+;;       (destructuring-bind (height width  &rest rest)
+;;           (array-dimensions app-arr)
+;;         (save-png width height "~/Pictures/area.png" app-arr :grayscale)))))
 (in-package  #:cl-autogui)
 
-(defun analysis (xored-image y-point &optional (border 50))
-  "Принимает отксоренное изображение и y-координату  наложения,
-   т.е. точку, от которой будет производиться анализ.
-   Анализирует кол-во почерневших точек на изображении, возвращает cons-пару типа
-   (% черных точек . y-point)"
-  (if (null xored-image)
-      nil
-      (destructuring-bind (height width &optional colors)
-          (array-dimensions xored-image)
-        ;;(format t "~% y-point ~A height ~A" y-point height)
-        (let* ((intesect-height (- height y-point)) ;; высота пересечения
-               (white 0)
-               (black 0)
-               ;; общее кол-во пикселей в области наложения
-               (pix-amount (* intesect-height width)))
-          ;; высчитываем максимально допустимое количество белых пикселей
-          (setf border (* (float (/ border 100)) pix-amount))
-          ;;(format t "~% intesect-height ~A " intesect-height)
-          ;; если картинки full-color
-          (if colors
-              (do ((qy y-point (incf qy)))
-                  ((= qy height))
-                ;; если кол-во нечерных пикселей больше 25%
-                (if (> white border)
-                    (progn
-                      ;; не анализируя дальше, возвращаем nil
-                      (return-from analysis))
-                    ;; в противном случае анализиуем следующий ряд пикселей
-                    (do ((qx 0 (incf qx)))
-                        ((= qx width))
-                      (when (not (and (eql (aref xored-image qy qx 0) 0)
-                                      (eql (aref xored-image qy qx 1) 0)
-                                      (eql (aref xored-image qy qx 2) 0)))
-                        (incf white)))))
-              ;; то же самое для бинарных изображений
-              (do ((qy y-point (incf qy)))
-                  ((= qy height))
-                (if (> white border)
-                    (progn
-                      (return-from analysis ))
-                    (do ((qx 0 (incf qx)))
-                        ((= qx width))
-                      (when (not (eql (aref xored-image qy qx) 0))
-                        (incf white))))))
-          ;; эта часть выполнится только если все циклы выполнены успешно
-          ;; считаем кол-во черных пикселей
-          (setf black ( - pix-amount white))
-          (let ((result (cons (* (float (/ black pix-amount)) 100)
-                              (* (float (/ white pix-amount)) 100))))
-            ;;(format t " ~% black ~A y-point ~A pixamount ~A" black y-point pix-amount)
-            ;; возвращаем кол-во черных пикселей в процентном выражении
-            result)))))
-
-;; (block analysis-test
-;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
-;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
-;;          (array (xor-area arr1 arr2 200))
-;;          (results (cons (analysis
-;;                          array 200 80)
-;;                         200)))
-;;     (format t " ~% results ~A" results)))
-(in-package  #:cl-autogui)
 
 (defun xor-area (image-up image-down y-point)
   (destructuring-bind (height-up width-up &optional colors-up)
@@ -999,16 +875,14 @@
       (assert (equal colors-up colors-down))
       (if (>= y-point height-up)
           nil
-          (let* ((new-height (if (> height-up height-down )
-                                 (+ height-up y-point)
-                                 (+ height-down y-point)))
-                 (intersect-area (if (> (- height-up y-point) height-down)
+          (let* ((intersect-area (if (> (- height-up y-point) height-down)
                                      height-down
                                      (- height-up y-point)))
                  (new-dims (if (null colors-down)
-                               (list new-height width-down)
-                               (list new-height width-down colors-down)))
+                               (list intersect-area width-down)
+                               (list intersect-area width-down colors-down)))
                  (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
+            ;;(format t "~% xor: intersect-area ~A" intersect-area)
             ;; макрос для прохода по блоку точек
             (macrolet ((cycle ((py px height width &optional &body newline)
                                &body body)
@@ -1168,11 +1042,38 @@
              (return-from
               find-best best-res))))))
 
-(defun create-roll (path own-cv lock)
+;; (block find-best-test
+;;   (let* ((arr1 (make-bit-image (binarization (load-png "~/Pictures/img-2"))))
+;;          (arr2 (make-bit-image (binarization (load-png "~/Pictures/img-3"))))
+;;          (do ((i 0 (incf i)))
+;;              ((= i (array-dimension arr1 0)))
+;;            (setf amount (analysis (xor-area arr1 arr2 i) i))
+;;            (if (car amount)
+;;                (setf res (cons (cons amount i) res))))
+;;          (format t "~% res ~A" res)
+;;          (setf res (find-best res))
+;;          (format t "~% best-res ~A" res)
+;;          (let ((app-arr (append-image (load-png "~/Pictures/img-2")
+;;                                       (load-png "~/Pictures/img-3") (cdr res))))
+;;            (destructuring-bind (height width  &rest rest)
+;;                (array-dimensions app-arr)
+;;              (save-png width height "~/Pictures/area.png" app-arr :grayscale))))))
+
+(defun create-roll (path own-cv outlock results-queue-lock)
   (loop
-     (bt:with-lock-held (lock)
+     (bt:with-lock-held (results-queue-lock)
        ;; wait for access
-       (bt:condition-wait own-cv lock)
+       (bt:condition-wait own-cv results-queue-lock)
+       (bt:with-lock-held (outlock)
+         (format t "~% create roll is woke"))
+       ;; если все сработает верно, то управление в эту строку
+       ;; попадет только 1 раз, поэтому не будет попытки удалить несуществующие потоки
+       (stop-report-and-kill-producer
+        outlock "stop-report-andd-kill-producer: last image!")
+       (kill-all-consumers
+        outlock "kill-all-consumers: last image!")
+       (bt:with-lock-held (outlock)
+         (format t "~% all threads are killed"))
        ;; take first img-pair
        (let* ((cur-result (pop *results-queue*))
               (cur-y-point (result-y-point cur-result))
@@ -1191,9 +1092,19 @@
            ;; find height of roll (нам это нужно, чтоб считать смещение)
            (destructuring-bind (height-roll width-roll &optional colors-roll)
                (array-dimensions roll)
-             ;; offset
-             (let ((new-y-point (+ cur-y-point height-roll)))
-               (setf roll (append-image roll cur-image-down new-y-point)))))
+             (destructuring-bind (height-up width-up &optional colors-up)
+                 (array-dimensions (result-image-up cur-result))
+               ;; offset
+               ;; поскольку индексация в массивах начинается с 0, то от height
+               ;; мы отнимаем 1: если array-dimensions вернула значение 668 для height,
+               ;; это означает, что у нас 668 строк с индексацие от 0 до 667,
+               ;; а не от 1 до 668. Так мы избежим погрешности в 1 пиксель
+               (let* ((difference (- (- height-up 1) cur-y-point))
+                      (new-y-point (- height-roll difference))))
+                 (bt:with-lock-held (outlock)
+                   (format t "~% do: i ~A; height-roll ~A cur-y-point ~A new-y-point ~A"
+                           i height-roll cur-y-point new-y-point ))
+                 (setf roll (append-image roll cur-image-down new-y-point))))))
          ;; save roll
          (destructuring-bind (height-roll width-roll &optional colors-roll)
              (array-dimensions roll)
@@ -1202,6 +1113,8 @@
                  (save-png width-roll height-roll path roll)
                  (return-from create-roll t))
                (progn
+                 (bt:with-lock-held (outlock)
+                   (format t "~% all the end!"))
                  (save-png width-roll height-roll path roll :grayscale)
                  (return-from create-roll t))))))))
 
@@ -1256,23 +1169,27 @@
                                        :y-point (cdr best-res)
                                        :image-up (task-image-up cur-task)
                                        :image-down (task-image-down cur-task))))
-                  (bt:with-lock-held (outlock)
-                    (setf *results-queue* (append *results-queue* (list new-result))))
-                  (bt:with-lock-held (outlock)
-                    (format t " ~% thread ~A ; best-res ~A for ~A results ~A;
+                      (bt:with-lock-held (task-queue-lock)
+                        (setf *results-queue* (append *results-queue* (list new-result))))
+                      (bt:with-lock-held (outlock)
+                        (format t " ~% thread ~A ; best-res ~A for ~A results ~A;
                                  ~A tasks left"
-                            (bt:thread-name (bt:current-thread)) best-res
-                            (cons (task-image-up-path cur-task)
-                                  (task-image-down-path cur-task))
-                            (length *results-queue*) (length *task-queue*))))
+                                (bt:thread-name (bt:current-thread)) best-res
+                                (cons (task-image-up-path cur-task)
+                                      (task-image-down-path cur-task))
+                                (length *results-queue*) (length *task-queue*))))
                     ;; was it last image?
                     (if last?
                         ;; yes
                         ;; kill all threads
-                        (kill-all-threads
-                         outlock "last image!" cv-roll)
-                        ;; increment thread-local task-cnt
-                        ))))))))
+                        (progn
+                          (bt:with-lock-held (outlock)
+                            (format t " ~% thread ~A: last image!"
+                                    (bt:thread-name (bt:current-thread))))
+                            (bt:with-lock-held (task-queue-lock)
+                              (bt:condition-notify cv-roll)))
+                            ;; increment thread-local task-cnt
+                            ))))))))
 
                         ;; (progn
                         ;;   (bt:with-lock-held (outlock)
@@ -1300,8 +1217,11 @@
                       (producer cv task-queue-lock))
                     :name "producer-thread")
     (bt:make-thread (lambda ()
-                      (create-roll "~/Pictures/roll.png" cv-roll results-queue-lock))
-                    :name "roll-thread")
+                      (create-roll "~/Pictures/roll.png" cv-roll outlock
+                      results-queue-lock))
+                    :name "roll-thread"
+                    :initial-bindings
+                    `((*standard-output* . ,*standard-output*)))
     (format t "~%thread 'producer-thread' created")
     (do ((th-idx 0 (incf th-idx)))
         ((= th-idx (- num-of-cores 1)))
@@ -1315,8 +1235,12 @@
             thread-pool))
     (values thread-pool task-queue-lock outlock)))
 
+;; теперь ты можешь собрать скрины онлайн
+
 ;; (block producer-consumers-test
-;;   (defparameter *clear*
+;; (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
+;; (sleep 8)
+;;(defparameter *clear*
 ;;     (multiple-value-bind (thread-pool task-queue-lock outlock)
 ;;         (create-threads 3)
 ;;       (declare (ignore thread-pool task-queue-lock outlock))
