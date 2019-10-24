@@ -58,8 +58,9 @@
   (defparameter *default-height* 668)
   (defparameter *teaser-width* 690)
   (defparameter *snap-width* 755)
-  (defparameter *snap-height* 668)
-  (defparameter *snap-x* 440)
+  (defparameter *snap-height* 950)
+  (defparameter *snap-x* 100)
+  (defparameter *snap-y* 100)
   (defparameter *default-x* 60)
   (defparameter *default-y* 37)
   (defparameter *mouse-left* 1)
@@ -1519,7 +1520,7 @@ TRUE. Когда это произойдет поток продолжит ис�
 
   (defun take-screenshot ()
     (binarization
-     (x-snapshot :x 440 :y 100
+     (x-snapshot :x *snap-x* :y *snap-y*
                  :width *snap-width* :height *snap-height*)))
 
   <<the_task>>
@@ -1656,7 +1657,7 @@ TRUE. Когда это произойдет поток продолжит ис�
 
 **** Fake Events
 :PROPERTIES:
-:xtest: xtest
+:xtest: xlib/xtest
 :END:
 
 NB: По какой-то странной причине (предположительно - разные версии

@@ -37,8 +37,9 @@
 (defparameter *default-height* 668)
 (defparameter *teaser-width* 690)
 (defparameter *snap-width* 755)
-(defparameter *snap-height* 668)
-(defparameter *snap-x* 440)
+(defparameter *snap-height* 950)
+(defparameter *snap-x* 100)
+(defparameter *snap-y* 100)
 (defparameter *default-x* 60)
 (defparameter *default-y* 37)
 (defparameter *mouse-left* 1)
@@ -272,88 +273,6 @@
 ;;         (array-dimensions array)
 ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
 
-(in-package  #:cl-autogui)
-
-(defun xor-area (image-up image-down y-point)
-  (destructuring-bind (height-up width-up &optional colors-up)
-      (array-dimensions image-up)
-    (destructuring-bind (height-down width-down &optional colors-down)
-        (array-dimensions image-down)
-      ;; (format t "~% height-up ~A width-up ~A height-down ~A width-down ~A y ~A"
-      ;;         height-up width-up height-down width-down y-point)
-      (assert (equal width-up width-down))
-      (assert (equal colors-up colors-down))
-      (if (>= y-point height-up)
-          nil
-          (let* ((new-height (if (> height-up height-down )
-                                 (+ height-up y-point)
-                                 (+ height-down y-point)))
-                 (intersect-area (if (> (- height-up y-point) height-down)
-                                     height-down
-                                     (- height-up y-point)))
-                 (new-dims (if (null colors-down)
-                               (list new-height width-down)
-                               (list new-height width-down colors-down)))
-                 (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
-            ;; макрос для прохода по блоку точек
-            (macrolet ((cycle ((py px height width &optional &body newline)
-                               &body body)
-                         `(do ((qy ,py (incf qy)))
-                              ((= qy ,height))
-                            (do ((qx ,px (incf qx)))
-                                ((= qx ,width))
-                              ,@body)
-                            ,@newline)))
-              ;; для бинарных изображений
-              (if (null colors-down)
-                  (let ((new-y y-point))
-                    ;; (- height-up y-point) = высота области наложения
-                    (cycle (0 0 intersect-area width-down (incf new-y))
-                           (setf (aref image-new qy qx)
-                                 (logxor (aref image-up new-y qx)
-                                         (aref image-down qy qx)))))
-                  ;; для full-color изображений
-                  (let ((new-y y-point))
-                    (cycle (0 0 intersect-area width-down (incf new-y))
-                           ;; ксорим 3 цвета
-                           (do ((rz 0 (incf rz)))
-                               ((= rz (- colors-down 1)))
-                             (setf (aref image-new qy qx rz)
-                                   (logxor (aref image-up new-y qx rz)
-                                           (aref image-down qy qx rz))))
-                           ;; копируем альфа-канал
-                           (setf (aref image-new qy qx 3)
-                                 (aref image-down qy qx 3))))))
-            image-new)))))
-
-;; (block xor-area-test
-;;   (time
-;;   (let* ((arr1 (binarization (load-png "~/Pictures/test-bin.png") 200))
-;;          (arr2 (binarization (load-png "~/Pictures/test-bin.png") 200))
-;;          (array (xor-area arr1 arr2 200)))
-;;              (destructuring-bind (height width  &rest rest)
-;;                 (array-dimensions array)
-;;                (save-png width height "~/Pictures/area.png" array :grayscale)))))
-
-;; (time
-;;  (block xor-area-test-with-analysis
-;;    (let* ((arr1  (binarization (x-snapshot :width 300 :height 600) 200))
-;;           (arr2  (binarization (x-snapshot :y 200 :width 300 :height 200) 200))
-;;           (arr1-bin (make-bit-image arr1))
-;;           (arr2-bin (make-bit-image arr2))
-;;           (amount)
-;;           (res))
-;;      (do ((i 0 (incf i)))
-;;          ((= i (array-dimension arr1 0)))
-;;        (setf amount (analysis (xor-area arr1-bin arr2-bin i) i))
-;;        (if (car amount)
-;;            (setf res (cons (cons amount i) res))))
-;;      (setf res (find-best res))
-;;      (let ((app-arr (append-image arr1 arr2 (cdr res))))
-;;        (destructuring-bind (height width  &rest rest)
-;;            (array-dimensions app-arr)
-;;          (save-png width height "~/Pictures/area.png" app-arr :grayscale))))))
-
 
 (in-package  #:cl-autogui)
 
@@ -433,14 +352,15 @@
    
    (in-package  #:cl-autogui)
    
-   (defstruct result
-     black
-     white
-     y-point
-     image-up image-down)
-   
    (defstruct append-results
      append-image)
+     (in-package  #:cl-autogui)
+     
+     (defstruct result
+       black
+       white
+       y-point
+       image-up image-down)
    
    
    (defun get-data (image-up-path image-down-path)

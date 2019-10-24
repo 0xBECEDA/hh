@@ -36,8 +36,9 @@
 (defparameter *default-height* 668)
 (defparameter *teaser-width* 690)
 (defparameter *snap-width* 755)
-(defparameter *snap-height* 668)
-(defparameter *snap-x* 440)
+(defparameter *snap-height* 950)
+(defparameter *snap-x* 100)
+(defparameter *snap-y* 100)
 (defparameter *default-x* 60)
 (defparameter *default-y* 37)
 (defparameter *mouse-left* 1)
@@ -53,7 +54,7 @@
 (defstruct append-results
   append-image)
   (in-package  #:cl-autogui)
-
+  
   (defstruct result
     black
     white
@@ -170,7 +171,7 @@
 (defun x-move (x y)
   (if (and (integerp x) (integerp y))
       (with-default-display-force (d)
-        (xtest:fake-motion-event d x y))
+        (xlib/xtest:fake-motion-event d x y))
       (error "Integer only for position, (x: ~S, y: ~S)" x y)))
 
 (defun mklist (obj)
@@ -230,20 +231,20 @@
   ;; (defun perform-mouse-action (press? button &key x y)
   ;;   (and x y (x-move x y))
   ;;   (with-default-display-force (d)
-  ;;     (xtest:fake-button-event d button press?)))
+  ;;     (xlib/xtest:fake-button-event d button press?)))
 
   ;; (defun perform-key-action (press? keycode) ; use xev to get keycode
   ;;   (with-default-display-force (d)
-  ;;     (xtest:fake-key-event d keycode press?)))
+  ;;     (xlib/xtest:fake-key-event d keycode press?)))
 
 (defun perform-mouse-action (press? button &key x y)
   (and x y (x-move x y))
   (with-default-display-force (d)
-    (xtest:fake-button-event d button press?)))
+    (xlib/xtest:fake-button-event d button press?)))
 
 (defun perform-key-action (press? keycode) ; use xev to get keycode
   (with-default-display-force (d)
-    (xtest:fake-key-event d keycode press?)))
+    (xlib/xtest:fake-key-event d keycode press?)))
 
   ;; (block perform-key-action-test
   ;;   (perform-key-action t 116)
@@ -488,7 +489,7 @@
 (defun x-move (x y)
   (if (and (integerp x) (integerp y))
       (with-default-display-force (d)
-        (xtest:fake-motion-event d x y))
+        (xlib/xtest:fake-motion-event d x y))
       (error "Integer only for position, (x: ~S, y: ~S)" x y)))
 
 (defun mklist (obj)
@@ -548,20 +549,20 @@
   ;; (defun perform-mouse-action (press? button &key x y)
   ;;   (and x y (x-move x y))
   ;;   (with-default-display-force (d)
-  ;;     (xtest:fake-button-event d button press?)))
+  ;;     (xlib/xtest:fake-button-event d button press?)))
 
   ;; (defun perform-key-action (press? keycode) ; use xev to get keycode
   ;;   (with-default-display-force (d)
-  ;;     (xtest:fake-key-event d keycode press?)))
+  ;;     (xlib/xtest:fake-key-event d keycode press?)))
 
 (defun perform-mouse-action (press? button &key x y)
   (and x y (x-move x y))
   (with-default-display-force (d)
-    (xtest:fake-button-event d button press?)))
+    (xlib/xtest:fake-button-event d button press?)))
 
 (defun perform-key-action (press? keycode) ; use xev to get keycode
   (with-default-display-force (d)
-    (xtest:fake-key-event d keycode press?)))
+    (xlib/xtest:fake-key-event d keycode press?)))
 
   ;; (block perform-key-action-test
   ;;   (perform-key-action t 116)
@@ -673,7 +674,7 @@
     result))
 
 ;; (in-package  #:cl-autogui)
-;;
+;; 
 ;; (block save-load-binarixation-test
 ;;   (x-snapshot :x 440 :width  *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -683,7 +684,7 @@
 ;;         (array-dimensions image)
 ;;       (save-png dw dh "~/Pictures/test-bin.png"
 ;;                image  :grayscale))))
-;;
+;; 
 ;; (block save-load-full-color-test
 ;;   (x-snapshot :x 440 :width *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -695,7 +696,7 @@
 
 (defun take-screenshot ()
   (binarization
-   (x-snapshot :x 440 :y 100
+   (x-snapshot :x *snap-x* :y *snap-y*
                :width *snap-width* :height *snap-height*)))
 
 (defstruct task
@@ -1237,16 +1238,16 @@
 
 ;; теперь ты можешь собрать скрины онлайн
 
-(block producer-consumers-test
-(open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-(sleep 8)
-(defparameter *clear*
-    (multiple-value-bind (thread-pool task-queue-lock outlock)
-        (create-threads 3)
-      (declare (ignore thread-pool task-queue-lock outlock))
-      (when nil
-        (print
-         (bt:all-threads))))))
+;; (block producer-consumers-test
+;; (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
+;; (sleep 8)
+;;(defparameter *clear*
+;;     (multiple-value-bind (thread-pool task-queue-lock outlock)
+;;         (create-threads 3)
+;;       (declare (ignore thread-pool task-queue-lock outlock))
+;;       (when nil
+;;         (print
+;;          (bt:all-threads))))))
 
 ;; OUTPUT:
 ;; thread 'producer-thread' created
