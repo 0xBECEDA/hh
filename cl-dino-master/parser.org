@@ -2768,7 +2768,7 @@ NB: По какой-то странной причине (предположит
                  ;; это означает, что у нас 668 строк с индексацие от 0 до 667,
                  ;; а не от 1 до 668. Так мы избежим погрешности в 1 пиксель
                  (let* ((difference (- (- height-up 1) cur-y-point))
-                        (new-y-point (- height-roll difference))))
+                        (new-y-point (- height-roll difference)))
                    (bt:with-lock-held (outlock)
                      (format t "~% do: i ~A; height-roll ~A cur-y-point ~A new-y-point ~A"
                              i height-roll cur-y-point new-y-point ))

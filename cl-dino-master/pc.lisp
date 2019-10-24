@@ -53,7 +53,7 @@
 (defstruct append-results
   append-image)
   (in-package  #:cl-autogui)
-  
+
   (defstruct result
     black
     white
@@ -673,7 +673,7 @@
     result))
 
 ;; (in-package  #:cl-autogui)
-;; 
+;;
 ;; (block save-load-binarixation-test
 ;;   (x-snapshot :x 440 :width  *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -683,7 +683,7 @@
 ;;         (array-dimensions image)
 ;;       (save-png dw dh "~/Pictures/test-bin.png"
 ;;                image  :grayscale))))
-;; 
+;;
 ;; (block save-load-full-color-test
 ;;   (x-snapshot :x 440 :width *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -1100,7 +1100,7 @@
                ;; это означает, что у нас 668 строк с индексацие от 0 до 667,
                ;; а не от 1 до 668. Так мы избежим погрешности в 1 пиксель
                (let* ((difference (- (- height-up 1) cur-y-point))
-                      (new-y-point (- height-roll difference))))
+                      (new-y-point (- height-roll difference)))
                  (bt:with-lock-held (outlock)
                    (format t "~% do: i ~A; height-roll ~A cur-y-point ~A new-y-point ~A"
                            i height-roll cur-y-point new-y-point ))
@@ -1237,16 +1237,16 @@
 
 ;; теперь ты можешь собрать скрины онлайн
 
-;; (block producer-consumers-test
-;; (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-;; (sleep 8)
-;;(defparameter *clear*
-;;     (multiple-value-bind (thread-pool task-queue-lock outlock)
-;;         (create-threads 3)
-;;       (declare (ignore thread-pool task-queue-lock outlock))
-;;       (when nil
-;;         (print
-;;          (bt:all-threads))))))
+(block producer-consumers-test
+(open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
+(sleep 8)
+(defparameter *clear*
+    (multiple-value-bind (thread-pool task-queue-lock outlock)
+        (create-threads 3)
+      (declare (ignore thread-pool task-queue-lock outlock))
+      (when nil
+        (print
+         (bt:all-threads))))))
 
 ;; OUTPUT:
 ;; thread 'producer-thread' created
