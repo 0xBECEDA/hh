@@ -36,9 +36,9 @@
 (defparameter *default-height* 668)
 (defparameter *teaser-width* 690)
 (defparameter *snap-width* 755)
-(defparameter *snap-height* 950)
+(defparameter *snap-height* 688)
 (defparameter *snap-x* 100)
-(defparameter *snap-y* 100)
+(defparameter *snap-y* 50)
 (defparameter *default-x* 60)
 (defparameter *default-y* 37)
 (defparameter *mouse-left* 1)
@@ -54,7 +54,7 @@
 (defstruct append-results
   append-image)
   (in-package  #:cl-autogui)
-  
+
   (defstruct result
     black
     white
@@ -162,101 +162,6 @@
 
 (in-package  #:cl-autogui)
 
-(defun x-size ()
-  (with-default-screen (s)
-    (values
-     (screen-width s)
-     (screen-height s))))
-
-(defun x-move (x y)
-  (if (and (integerp x) (integerp y))
-      (with-default-display-force (d)
-        (xlib/xtest:fake-motion-event d x y))
-      (error "Integer only for position, (x: ~S, y: ~S)" x y)))
-
-(defun mklist (obj)
-  (if (and
-       (listp obj)
-       (not (null obj)))
-      obj (list obj)))
-
-(defmacro defun-with-actions (name params actions &body body)
-  ;; "This macro defun a function which witch do mouse or keyboard actions,
-  ;; body is called on each action."
-  `(defun ,name ,params
-     (mapcar
-      #'(lambda (action)
-          ,@body)
-      (mklist ,actions))))
-
-(macrolet ((def (name actions)
-             `(defun-with-actions ,name
-                  (&key (button 1) x y)
-                  ,actions
-                (funcall #'perform-mouse-action
-                         action button :x x :y y))))
-  (def x-mouse-down t)
-  (def x-mouse-up nil)
-  (def x-click '(t nil))
-  (def x-dbclick '(t nil t nil)))
-
-(defmacro with-scroll (pos neg clicks x y)
-  `(let ((button (cond
-                   ((= 0 ,clicks) nil)
-                   ((> 0 ,clicks) ,pos)    ; scroll up/right
-                   ((< 0 ,clicks) ,neg)))) ; scroll down/left
-     (dotimes (_ (abs ,clicks))
-       (x-click :button button :x ,x :y ,y))))
-
-(defun x-vscroll (clicks &key x y)
-  (with-scroll 4 5 clicks x y))
-
-(defun x-scroll (clicks &key x y)
-  (x-vscroll clicks :x x :y y))
-
-(defun x-hscroll (clicks &key x y)
-  (with-scroll 7 6 clicks x y))
-
-(macrolet ((def (name actions)
-             `(defun-with-actions ,name (keycode)
-                  ,actions
-                (funcall #'perform-key-action
-                         action keycode))))
-  (def x-key-down t)
-  (def x-key-up nil)
-  (def x-press '(t nil)))
-
-  (in-package  #:cl-autogui)
-
-  ;; (defun perform-mouse-action (press? button &key x y)
-  ;;   (and x y (x-move x y))
-  ;;   (with-default-display-force (d)
-  ;;     (xlib/xtest:fake-button-event d button press?)))
-
-  ;; (defun perform-key-action (press? keycode) ; use xev to get keycode
-  ;;   (with-default-display-force (d)
-  ;;     (xlib/xtest:fake-key-event d keycode press?)))
-
-(defun perform-mouse-action (press? button &key x y)
-  (and x y (x-move x y))
-  (with-default-display-force (d)
-    (xlib/xtest:fake-button-event d button press?)))
-
-(defun perform-key-action (press? keycode) ; use xev to get keycode
-  (with-default-display-force (d)
-    (xlib/xtest:fake-key-event d keycode press?)))
-
-  ;; (block perform-key-action-test
-  ;;   (perform-key-action t 116)
-  ;;   (sleep .1)
-  ;;   (perform-key-action nil 116))
-
-  ;; (block perform-mouse-action-test
-  ;;   (perform-mouse-action t *mouse-left* :x 100 :y 100)
-  ;;   (sleep .1)
-  ;;   (perform-mouse-action nil *mouse-left* :x 100 :y 100))
-(in-package  #:cl-autogui)
-
 (defun make-bit-image (image-data)
   (destructuring-bind (height width &optional colors)
       (array-dimensions image-data)
@@ -361,7 +266,7 @@
 (defparameter *results-queue* nil)
 
 
-(defparameter *last?* nil)
+
 (in-package #:cl-autogui)
 
 (in-package #:cl-autogui)
@@ -489,7 +394,7 @@
 (defun x-move (x y)
   (if (and (integerp x) (integerp y))
       (with-default-display-force (d)
-        (xlib/xtest:fake-motion-event d x y))
+        (xtest:fake-motion-event d x y))
       (error "Integer only for position, (x: ~S, y: ~S)" x y)))
 
 (defun mklist (obj)
@@ -549,20 +454,20 @@
   ;; (defun perform-mouse-action (press? button &key x y)
   ;;   (and x y (x-move x y))
   ;;   (with-default-display-force (d)
-  ;;     (xlib/xtest:fake-button-event d button press?)))
+  ;;     (xtest:fake-button-event d button press?)))
 
   ;; (defun perform-key-action (press? keycode) ; use xev to get keycode
   ;;   (with-default-display-force (d)
-  ;;     (xlib/xtest:fake-key-event d keycode press?)))
+  ;;     (xtest:fake-key-event d keycode press?)))
 
 (defun perform-mouse-action (press? button &key x y)
   (and x y (x-move x y))
   (with-default-display-force (d)
-    (xlib/xtest:fake-button-event d button press?)))
+    (xtest:fake-button-event d button press?)))
 
 (defun perform-key-action (press? keycode) ; use xev to get keycode
   (with-default-display-force (d)
-    (xlib/xtest:fake-key-event d keycode press?)))
+    (xtest:fake-key-event d keycode press?)))
 
   ;; (block perform-key-action-test
   ;;   (perform-key-action t 116)
@@ -674,7 +579,7 @@
     result))
 
 ;; (in-package  #:cl-autogui)
-;; 
+;;
 ;; (block save-load-binarixation-test
 ;;   (x-snapshot :x 440 :width  *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -684,7 +589,7 @@
 ;;         (array-dimensions image)
 ;;       (save-png dw dh "~/Pictures/test-bin.png"
 ;;                image  :grayscale))))
-;; 
+;;
 ;; (block save-load-full-color-test
 ;;   (x-snapshot :x 440 :width *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -698,7 +603,6 @@
   (binarization
    (x-snapshot :x *snap-x* :y *snap-y*
                :width *snap-width* :height *snap-height*)))
-
 (defstruct task
   (y-points '())
   (image-up nil)
@@ -1046,19 +950,21 @@
 ;; (block find-best-test
 ;;   (let* ((arr1 (make-bit-image (binarization (load-png "~/Pictures/img-2"))))
 ;;          (arr2 (make-bit-image (binarization (load-png "~/Pictures/img-3"))))
-;;          (do ((i 0 (incf i)))
-;;              ((= i (array-dimension arr1 0)))
-;;            (setf amount (analysis (xor-area arr1 arr2 i) i))
-;;            (if (car amount)
-;;                (setf res (cons (cons amount i) res))))
-;;          (format t "~% res ~A" res)
-;;          (setf res (find-best res))
-;;          (format t "~% best-res ~A" res)
-;;          (let ((app-arr (append-image (load-png "~/Pictures/img-2")
-;;                                       (load-png "~/Pictures/img-3") (cdr res))))
-;;            (destructuring-bind (height width  &rest rest)
-;;                (array-dimensions app-arr)
-;;              (save-png width height "~/Pictures/area.png" app-arr :grayscale))))))
+;;          (amount)
+;;          (res))
+;;     (do ((i 0 (incf i)))
+;;         ((= i (array-dimension arr1 0)))
+;;       (setf amount (analysis (xor-area arr1 arr2 i) i))
+;;       (if (car amount)
+;;           (setf res (cons (cons amount i) res))))
+;;     (format t "~% res ~A" res)
+;;     (setf res (find-best res))
+;;     (format t "~% best-res ~A" res)
+;;     (let ((app-arr (append-image (load-png "~/Pictures/img-2")
+;;                                  (load-png "~/Pictures/img-3") (cdr res))))
+;;       (destructuring-bind (height width  &rest rest)
+;;           (array-dimensions app-arr)
+;;         (save-png width height "~/Pictures/area.png" app-arr :grayscale)))))
 
 (defun create-roll (path own-cv outlock results-queue-lock)
   (loop
@@ -1192,20 +1098,6 @@
                             ;; increment thread-local task-cnt
                             ))))))))
 
-                        ;; (progn
-                        ;;   (bt:with-lock-held (outlock)
-                        ;;     (incf *task-cnt*))
-                        ;;   ;; check task limit
-                        ;;   (when (> *task-cnt* *task-limit*)
-                        ;;     (stop-report-and-kill-producer
-                        ;;      outlock "task limit has been reached")
-                        ;;     (create-roll "~/Pictures/roll.png")
-                        ;;     (return))
-                        ;;   ;; check overload
-                        ;;   (when (> (length *task-queue*) 5)
-                        ;;     (stop-report-and-kill-producer
-                        ;;      outlock "many tasks in queue")
-                        ;;     (return)))))))))
 
 (defun create-threads (num-of-cores)
   (let* ((cv              (bt:make-condition-variable))
@@ -1248,6 +1140,27 @@
 ;;       (when nil
 ;;         (print
 ;;          (bt:all-threads))))))
+
+(defun producer-test ()
+(let* ((cv              (bt:make-condition-variable))
+       (task-queue-lock (bt:make-lock "task-queue-lock"))
+       (outlock         (bt:make-lock "outlock")))
+  (bt:make-thread (lambda ()
+                    (producer cv task-queue-lock))
+                  :name "producer-thread")
+  (loop
+       (if (eql (length *task-queue*) 5)
+           (progn
+           (stop-report-and-kill-producer
+            outlock "stop-report-andd-kill-producer: last image!")
+           (return-from producer-test t))))))
+
+
+(block producer-test
+(open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
+(sleep 8)
+(producer-test))
+
 
 ;; OUTPUT:
 ;; thread 'producer-thread' created

@@ -160,26 +160,6 @@
 - склеить по ним
 - повторять до тех пор, пока не получим единый рулон
 
-#+NAME: merge_images
-#+BEGIN_SRC lisp :noweb yes
-  (in-package #:cl-autogui)
-
-  <<create_threads>>
-  <<screen_scan>>
-
-  (defun get-area-merge-results (num-of-cores)
-    (let* ((tasks '())
-           (last? nil)
-           (results '())
-           (append-results '()))
-      (declare (special tasks last? results append-results))
-      (multiple-value-bind (lock thread-names)
-          (create-threads num-of-cores)
-        (screen-scan))))
-
-  <<get_area_merge_results_tests>>
-#+END_SRC
-
 *** Запуск потоков
 
 Создает несколько потоков и возвращает:
@@ -207,134 +187,6 @@
             (push t-name thread-names)))
         (values lock
                 thread-names))))
-#+END_SRC
-
-*** Скриннинг экрана
-
-Здесь главный поток занимается получением данных для анализирующих.
-~get-data~ скринит экран, сохраняет изображения и вызывает ~make-task~
-для каждой новой пары изображений.
-
-Затем мы ждем некоторое время, чтоб скрининг не происходил слишком быстро, иначе
-анализирующие потоки не успевают за главным и скрининг становится почти бесконечным.
-(На данный момент анализирующие потоки все равно не успевают, поэтому по достижении
-конца страницы выдачи мы получаем несколько одинаковых скринов)
-
-Если какие-то результаты есть, проверяем флаг ~last?~. Если он ~t~, мы достигли конца
-страницы и скрининг прекращается. Мы ждем завершения работы потоков
-и вызываем склейку.
-
-На данный момент вместо вызова ~make-roll~ мы вызываем ~make-roll-test~,
-которая описана в разделе ~демо версия~.
-
-#+NAME: screen_scan
-#+BEGIN_SRC lisp :noweb yes
-  (in-package #:cl-autogui)
-
-  <<alive_threads_counter>>
-  <<make_roll_test>>
-
-  (defun screen-scan ()
-    (let ((screen-cnt 0))
-      (tagbody
-       get-data
-         ;;скриним и составляем таски
-         (get-data (format nil "~~/Pictures/screen~A.png" screen-cnt)
-                   (format nil "~~/Pictures/screen~A.png" (incf screen-cnt)))
-         (incf screen-cnt)
-         (sleep 8)
-         (format t "~% length results ~A" (length results))
-         ;;(format t "~% length tasks ~A" (fill-pointer tasks))
-         ;;(format t "~% length results ~A" (car results))
-         (if (null results)
-             ;; пока не дойдем до последней пары картинок
-             (go get-data)
-             ;; else [COMMENT:gmm] - Что здесь происходит и зачем?
-             (progn
-                ;; это отладочный цикл, который позволяет увидеть запушенные результаты:
-                ;; y-point и кол-во черных точек
-               (do ((i 0 (incf i)))
-                   ((= i (length results)))
-                 (let ((struct (nth i results)))
-                   (format t "~% y ~A black ~A"
-                           (result-y-point struct)
-                           (result-black struct))))
-               (if *last?*
-                   (progn
-                     ;; (format t "~% length results ~A" (car results))
-                     (tagbody
-                      check-threads
-                        ;; (format t "~% results ~A tasks~A" (length results)
-                        ;;         (length tasks))
-                        ;; счетчик живых потоков
-                        (let ((alive-threads (alive-threads-counter thread-names)))
-                          ;;(format t "~% alive threads ~A " alive-threads)
-                          ;; если живых потоков нет
-                          (if (eql 0 alive-threads)
-                          ;; вызывать склейку
-                              (progn
-                                ;;(make-roll num-of-cores)
-                                (format t "~% results ~A" (length *results-queue*))
-                                (make-roll-test)
-                                (return-from screen-scan t))
-                              ;; иначе проверяем снова
-                              (progn
-                                (sleep .5)
-                                ;;(format t "~% wait")
-                                (go  check-threads))))))
-                   (go get-data)))))))
-#+END_SRC
-
-***** Получение изображений
-
-~get-data~ вызывается из ~screen-scan~ и обеспечивает получение скринов с
-экрана.
-
-Она делает скрин, скролит страницу вниз с помощью эмуляции нажатия
-клавиши ~PgDn~, делает еще один скрин и создает таск для них, а затем
-сохраняет оба изображения.
-
-#+NAME: get_data
-#+BEGIN_SRC lisp :noweb yes
-  (in-package  #:cl-autogui)
-
-  <<structs>>
-  <<create_task>>
-
-  (defun get-data (image-up-path image-down-path)
-    ;; если тасков нет, а занчит, нет и пары изображений
-    (format t "~% get-data: image-up ~A image-down ~A" image-up-path image-down-path)
-    ;;(if (eql (fill-pointer tasks) 0)
-    ;; сделать скриншот
-    (let ((image-up
-           (binarization
-            (x-snapshot :x 440 :y 100
-                        :width *snap-width* :height *snap-height*))))
-      ;; провертим экран вниз
-      (perform-key-action t 117)
-      (sleep .1)
-      (perform-key-action nil 117)
-      (sleep .5)
-      ;; сделать второй скриншот
-      (let ((image-down
-             (binarization (x-snapshot :x 440 :y 100 :width *snap-width*
-                                       :height *snap-height*))))
-        ;; сделать таск для них
-        (create-task image-up image-down image-up-path image-down-path)
-        ;; сохранить их
-        (destructuring-bind (height-down width-down)
-            (array-dimensions image-down)
-          (save-png width-down height-down image-down-path image-down :grayscale))
-        (destructuring-bind (height-up width-up)
-            (array-dimensions image-up)
-          (save-png width-up height-up image-up-path image-up :grayscale))))
-    ;; else
-    ;;(progn
-    ;; провертим экран вниз
-    (perform-key-action t 117)
-    (sleep .1)
-    (perform-key-action nil 117)
-    (sleep .5))
 #+END_SRC
 
 ****** Структуры
@@ -531,55 +383,6 @@ Cur-results нам еще понадобятся
 
 ***** Склеивание картинок
 
-Данная функция будет брать данные из пула результатов и склеивать по ним картинки.
-Она берет результаты анализа картинок по одному из общего пулла результатов и склеивает
-картинки до тех пор, пока результаты анализа не кончатся.
-
-Писалась в отладочных целях, поэтому однопоточная.
-
-#+NAME: make_roll_test
-#+BEGIN_SRC lisp :noweb yes
-  (defun make-roll-test ()
-    (format t "~% make-roll: amount of results ~A"
-            (length *results-queue*))
-    (let ((counter 0))
-      (tagbody
-       append-images
-         (format t "~% append-images")
-         ;; получаем результаты анализа
-         (let* (;; (cur-task (vector-pop results))
-                (cur-task (pop *results-queue*))
-                (image-up (result-image-up cur-task))
-                (image-down (result-image-down cur-task))
-                (y-point (result-y-point cur-task)))
-           (destructuring-bind (height-down width-down)
-               (array-dimensions image-down)
-             (destructuring-bind (height-up width-up)
-                 (array-dimensions image-up)
-               (format t
-                       "~% --------------------
-                                         ~% height-down ~A width-down ~A
-                                         ~% height-up ~A width-up ~A
-                                         ~% --------------------"
-                       height-down width-down height-up width-up)))
-           (let ((appended-image
-                  (append-image image-up image-down y-point)))
-             (destructuring-bind (height width)
-                 (array-dimensions appended-image)
-               (save-png width height
-                         (format nil "~~/Pictures/resut~A.png" counter)
-                         appended-image :grayscale))
-             (incf counter)
-             ;; пушим результаты склейки
-             (setf *append-results-queue* (append *append-results-queue*
-                                                   (list appended-image))))
-           ;; результаты аналза кончились?
-           ;; (if (not (eql (fill-pointer results) 0))
-           (if (not (eql 0 (length *results-queue*)))
-               ;; нет!
-               (go append-images)
-               t)))))
-#+END_SRC
 
 ****** append-image: склеить 2 массива начиная от заданной Y-координаты
 
@@ -1657,7 +1460,7 @@ TRUE. Когда это произойдет поток продолжит ис�
 
 **** Fake Events
 :PROPERTIES:
-:xtest: xlib/xtest
+:xtest: xtest
 :END:
 
 NB: По какой-то странной причине (предположительно - разные версии
@@ -2077,20 +1880,6 @@ NB: По какой-то странной причине (предположит
                               ;; increment thread-local task-cnt
                               ))))))))
 
-                          ;; (progn
-                          ;;   (bt:with-lock-held (outlock)
-                          ;;     (incf *task-cnt*))
-                          ;;   ;; check task limit
-                          ;;   (when (> *task-cnt* *task-limit*)
-                          ;;     (stop-report-and-kill-producer
-                          ;;      outlock "task limit has been reached")
-                          ;;     (create-roll "~/Pictures/roll.png")
-                          ;;     (return))
-                          ;;   ;; check overload
-                          ;;   (when (> (length *task-queue*) 5)
-                          ;;     (stop-report-and-kill-producer
-                          ;;      outlock "many tasks in queue")
-                          ;;     (return)))))))))
 #+END_SRC
 
 *** Consumer thread auxiliary functions
@@ -2589,19 +2378,11 @@ NB: По какой-то странной причине (предположит
 
 Проходимся по всем результатам, имеющим одинаковый процент черных точек. Если среди них
 встретился нулевой ~y-point~, значит, картинки одинаковые. Тогда лучшим признается
-результат с нулевым ~y-point~, и фраг ~*last?*~ становится t. Если же нулевой ~y-point~
-не встретился, то текущий лучший результат оказывается окончательным.
+результат с нулевым ~y-point~, и тогда ~find-best~ возвращает вторым занчением t
+Если же нулевой ~y-point~ не встретился, то текущий лучший результат
+оказывается окончательным.
 
 На выходе функция всегда должна вернуть какой-то результат.
-
-[COMMENT:gmm] Мне кажется, что ~last?~ должна быть thread-local variable
-или нет?
-
-- Я думаю, нет. Доступ к ней должен быть у всех потоков.
-#+NAME: last?
-#+BEGIN_SRC lisp :noweb yes
-  (defparameter *last?* nil)
-#+END_SRC
 
 [COMMENT:gmm] Сортировать чтобы потом взять максимальный результат -
 чудовищно неоптимально. На код-ревью придется краснеть...
@@ -2656,19 +2437,21 @@ NB: По какой-то странной причине (предположит
   ;; (block find-best-test
   ;;   (let* ((arr1 (make-bit-image (binarization (load-png "~/Pictures/img-2"))))
   ;;          (arr2 (make-bit-image (binarization (load-png "~/Pictures/img-3"))))
-  ;;          (do ((i 0 (incf i)))
-  ;;              ((= i (array-dimension arr1 0)))
-  ;;            (setf amount (analysis (xor-area arr1 arr2 i) i))
-  ;;            (if (car amount)
-  ;;                (setf res (cons (cons amount i) res))))
-  ;;          (format t "~% res ~A" res)
-  ;;          (setf res (find-best res))
-  ;;          (format t "~% best-res ~A" res)
-  ;;          (let ((app-arr (append-image (load-png "~/Pictures/img-2")
-  ;;                                       (load-png "~/Pictures/img-3") (cdr res))))
-  ;;            (destructuring-bind (height width  &rest rest)
-  ;;                (array-dimensions app-arr)
-  ;;              (save-png width height "~/Pictures/area.png" app-arr :grayscale))))))
+  ;;          (amount)
+  ;;          (res))
+  ;;     (do ((i 0 (incf i)))
+  ;;         ((= i (array-dimension arr1 0)))
+  ;;       (setf amount (analysis (xor-area arr1 arr2 i) i))
+  ;;       (if (car amount)
+  ;;           (setf res (cons (cons amount i) res))))
+  ;;     (format t "~% res ~A" res)
+  ;;     (setf res (find-best res))
+  ;;     (format t "~% best-res ~A" res)
+  ;;     (let ((app-arr (append-image (load-png "~/Pictures/img-2")
+  ;;                                  (load-png "~/Pictures/img-3") (cdr res))))
+  ;;       (destructuring-bind (height width  &rest rest)
+  ;;           (array-dimensions app-arr)
+  ;;         (save-png width height "~/Pictures/area.png" app-arr :grayscale)))))
 
   <<create_roll>>
 #+END_SRC
@@ -2831,7 +2614,6 @@ NB: По какой-то странной причине (предположит
   <<x-snapshot>>
   <<append_image>>
   <<save-png>>
-  <<fake_events>>
   <<make_bit_image>>
   <<append-xor>>
   <<pc_queue>>
@@ -2849,6 +2631,26 @@ NB: По какой-то странной причине (предположит
   ;;       (when nil
   ;;         (print
   ;;          (bt:all-threads))))))
+
+  (defun producer-test ()
+  (let* ((cv              (bt:make-condition-variable))
+         (task-queue-lock (bt:make-lock "task-queue-lock"))
+         (outlock         (bt:make-lock outlock)))
+    (bt:make-thread (lambda ()
+                      (producer cv task-queue-lock))
+                    :name "producer-thread")
+    (loop
+         (if (eql (length *task-queue*) 5)
+             (progn
+             (stop-report-and-kill-producer
+              outlock "stop-report-andd-kill-producer: last image!")
+             (return-from producer-test t))))))
+
+
+  ;; (block producer-test
+  ;;   (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
+  ;;   (sleep 8)
+  ;;   (producer-test))
 
   ;; OUTPUT:
   ;; thread 'producer-thread' created
