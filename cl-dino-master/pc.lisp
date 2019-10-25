@@ -36,9 +36,9 @@
 (defparameter *default-height* 668)
 (defparameter *teaser-width* 690)
 (defparameter *snap-width* 755)
-(defparameter *snap-height* 688)
+(defparameter *snap-height* 668)
 (defparameter *snap-x* 100)
-(defparameter *snap-y* 50)
+(defparameter *snap-y* 100)
 (defparameter *default-x* 60)
 (defparameter *default-y* 37)
 (defparameter *mouse-left* 1)
@@ -346,10 +346,15 @@
   (defun save-screenshot (img)
     (let ((path (format nil "img-~A" (incf screen-cnt))))
       (cons path
-            (destructuring-bind (height width)
+            (destructuring-bind (height width &optional colors)
                 (array-dimensions img)
-              (save-png width height path img :grayscale)
-              img)))))
+              (if colors
+                  (progn
+                    (save-png width height path img)
+                    img)
+                  (progn
+                    (save-png width height path img :grayscale)
+                    img)))))))
 
 (in-package #:cl-autogui)
 
@@ -600,9 +605,12 @@
 ;;     (save-png dw dh "~/Pictures/test-full-color.png" image))))
 
 (defun take-screenshot ()
-  (binarization
-   (x-snapshot :x *snap-x* :y *snap-y*
-               :width *snap-width* :height *snap-height*)))
+  ;;(binarization
+  (x-snapshot :x *snap-x* :y *snap-y*
+              :width *snap-width* :height *snap-height*)
+  ;; )
+  )
+
 (defstruct task
   (y-points '())
   (image-up nil)
@@ -622,7 +630,7 @@
        ;; Сделаем следующее изображение
        (let ((next-img (save-screenshot (take-screenshot))))
          ;; Сформируем новый таск
-         (destructuring-bind (height-down width-down)
+         (destructuring-bind (height-down width-down &optional colors)
              (array-dimensions (cdr next-img))
            (declare (ignore width-down))
            (let ((new-task (make-task :y-points (loop
@@ -704,7 +712,7 @@
         nil
         (destructuring-bind (height width &optional colors)
             (array-dimensions xored-image)
-          (format t "~% y-point ~A height ~A" y-point height)
+          ;;(format t "~% y-point ~A height ~A" y-point height)
           (let* ((intesect-height height) ;; высота пересечения
                  (white 0)
                  (black 0)
@@ -712,7 +720,7 @@
                  (pix-amount (* intesect-height width)))
             ;; высчитываем максимально допустимое количество белых пикселей
             (setf border (* (float (/ border 100)) pix-amount))
-            (format t "~% intesect-height ~A " intesect-height)
+            ;;(format t "~% intesect-height ~A " intesect-height)
             ;; если картинки full-color
             (if colors
                 (do ((qy y-point (incf qy)))
@@ -1064,8 +1072,8 @@
                   (finish-output))
                 ;; analize task and push best results to the queue
                 (let* ((cur-results (funcall (task-fn cur-task)
-                                             (task-image-up cur-task)
-                                             (task-image-down cur-task)
+                                             (binarization (task-image-up cur-task))
+                                             (binarization (task-image-down cur-task))
                                              (task-y-points cur-task))))
                   ;; find best results after analize
                   (multiple-value-bind (best-res last?)
@@ -1130,16 +1138,16 @@
 
 ;; теперь ты можешь собрать скрины онлайн
 
-;; (block producer-consumers-test
-;; (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-;; (sleep 8)
-;;(defparameter *clear*
-;;     (multiple-value-bind (thread-pool task-queue-lock outlock)
-;;         (create-threads 3)
-;;       (declare (ignore thread-pool task-queue-lock outlock))
-;;       (when nil
-;;         (print
-;;          (bt:all-threads))))))
+(block producer-consumers-test
+(open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
+(sleep 8)
+(defparameter *clear*
+    (multiple-value-bind (thread-pool task-queue-lock outlock)
+        (create-threads 3)
+      (declare (ignore thread-pool task-queue-lock outlock))
+      (when nil
+        (print
+         (bt:all-threads))))))
 
 (defun producer-test ()
 (let* ((cv              (bt:make-condition-variable))
@@ -1156,11 +1164,10 @@
            (return-from producer-test t))))))
 
 
-(block producer-test
-(open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-(sleep 8)
-(producer-test))
-
+;; (block producer-test
+;;   (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
+;;   (sleep 8)
+;;   (producer-test))
 
 ;; OUTPUT:
 ;; thread 'producer-thread' created

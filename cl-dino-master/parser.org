@@ -58,7 +58,7 @@
   (defparameter *default-height* 668)
   (defparameter *teaser-width* 690)
   (defparameter *snap-width* 755)
-  (defparameter *snap-height* 950)
+  (defparameter *snap-height* 688)
   (defparameter *snap-x* 100)
   (defparameter *snap-y* 100)
   (defparameter *default-x* 60)
@@ -1248,7 +1248,7 @@ TRUE. Когда это произойдет поток продолжит ис�
          ;; Сделаем следующее изображение
          (let ((next-img (save-screenshot (take-screenshot))))
            ;; Сформируем новый таск
-           (destructuring-bind (height-down width-down)
+           (destructuring-bind (height-down width-down &optional colors)
                (array-dimensions (cdr next-img))
              (declare (ignore width-down))
              (let ((new-task (make-task :y-points (loop
@@ -1304,10 +1304,15 @@ TRUE. Когда это произойдет поток продолжит ис�
     (defun save-screenshot (img)
       (let ((path (format nil "img-~A" (incf screen-cnt))))
         (cons path
-              (destructuring-bind (height width)
+              (destructuring-bind (height width &optional colors)
                   (array-dimensions img)
-                (save-png width height path img :grayscale)
-                img)))))
+                (if colors
+                    (progn
+                      (save-png width height path img)
+                      img)
+                    (progn
+                      (save-png width height path img :grayscale)
+                      img)))))))
 
   <<display_macros>>
   <<fake_events>>
@@ -1322,9 +1327,11 @@ TRUE. Когда это произойдет поток продолжит ис�
   <<binarization>>
 
   (defun take-screenshot ()
-    (binarization
-     (x-snapshot :x *snap-x* :y *snap-y*
-                 :width *snap-width* :height *snap-height*)))
+    ;;(binarization
+    (x-snapshot :x *snap-x* :y *snap-y*
+                :width *snap-width* :height *snap-height*)
+    ;; )
+    )
 
   <<the_task>>
 #+END_SRC
@@ -1846,8 +1853,8 @@ NB: По какой-то странной причине (предположит
                     (finish-output))
                   ;; analize task and push best results to the queue
                   (let* ((cur-results (funcall (task-fn cur-task)
-                                               (task-image-up cur-task)
-                                               (task-image-down cur-task)
+                                               (binarization (task-image-up cur-task))
+                                               (binarization (task-image-down cur-task))
                                                (task-y-points cur-task))))
                     ;; find best results after analize
                     (multiple-value-bind (best-res last?)
@@ -2635,7 +2642,7 @@ NB: По какой-то странной причине (предположит
   (defun producer-test ()
   (let* ((cv              (bt:make-condition-variable))
          (task-queue-lock (bt:make-lock "task-queue-lock"))
-         (outlock         (bt:make-lock outlock)))
+         (outlock         (bt:make-lock "outlock")))
     (bt:make-thread (lambda ()
                       (producer cv task-queue-lock))
                     :name "producer-thread")
