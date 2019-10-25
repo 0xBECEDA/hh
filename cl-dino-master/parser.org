@@ -72,1075 +72,6 @@
   (defparameter *browser-path*  "/usr/bin/firefox")
 #+END_SRC
 
-* Получение скрина
-
-Чтоб получить скрины с какого-либо сайта, надо сначала открыть сам сайт.
-С помощью ~run-programm~ запускаем браузер (в нашем случае это firefox) с
-заданным URL.
-
-#+NAME: open-browser
-#+BEGIN_SRC lisp
-  (in-package  #:cl-autogui)
-
-  (defun open-browser (browser-path url)
-    (let ((proc (sb-ext:run-program
-                 `,browser-path
-                 `(,url)
-                 :input :stream :output :stream)))
-      (if proc
-          (with-open-stream (input (sb-ext:process-input proc))
-            (with-open-stream (output (sb-ext:process-output proc))
-              (do ((a-line (read-line output nil 'eof)
-                           (read-line output nil 'eof)))
-                  ((eql a-line 'eof))
-                (format t "~A" a-line)
-                (force-output output))))
-      (format t "~% open-browser: didn't run firefox"))))
-
-  ;; (block open-browser-test
-  ;;  (open-browser "/usr/bin/firefox" *hh-teaser-url*))
-#+END_SRC
-
-* анализ и склейка изображений
-
-~Цикл обработки страницы выдачи:~
-Есть 4 потока: 1 главный и 3 анализирующих.
-~Главный поток~
-Цель: сбор данных для анализирующего потока
-- запускает 3 анализирующих потока ([[*%D0%97%D0%B0%D0%BF%D1%83%D1%81%D0%BA %D0%BF%D0%BE%D1%82%D0%BE%D0%BA%D0%BE%D0%B2][Запуск потоков]])
-  [COMMENT:gmm] Почему потоки запускаются до того, как таски для них готовы?
-  Ответ: потому что сбор скринов и производство тасков происходит в своеобразном
-  бесконечном цикле ( сделать 2 скрина, посздать таск для них) и цикл будет бесконечным
-  до тех пор, пока мы не достигнем конца страницы выдачи.
-  Если поставить запуск потоков внутрь этого цикла, то у нас не хватит ядер для такого
-  кол-ва потоков. Если же сделать процедуру, которая содаст потоки, и вызвать ее из
-  главного потока, то главный поток будет ожидать возврата из нее, который произойдет
-  только после закрытия анализирующих потоков. Что произойдет довольно бытсро: ведь они
-  не дождуться тасков от главного потока, тот же жет возврата из процедуры.
-  Поэтому я сначала запускаю потоки, а только потом замыкаю "цикл" сборки скринов.
-- Скринит экран, проматывая его вниз и делает таски для анализирующих
-  потоков ([[*%D0%A1%D0%BA%D1%80%D0%B8%D0%BD%D0%BD%D0%B8%D0%BD%D0%B3 %D1%8D%D0%BA%D1%80%D0%B0%D0%BD%D0%B0][Скриннинг экрана]]), вызывая ~get-data~, которая скринит экран и
-  делает таск на каждую пару изображений. Повторяет этот процесс до тех
-  пор, пока не достигнем конца страницы выдачи (т.е. не встретим 2
-  одинаковых изображения)
-  [COMMENT:gmm] В чем смысл делать таск на каждую пару изображений, если
-  нам надо получить рулон?
-  Ответ: а какие еще варианты? В любом случае придется проанализировать каждое
-  изображение в "двух ипостасях": как изображение, на которое накладывают (image-up)
-  и как изображение, которое накладывают (image-dowm). Анализировать парами - самый
-  простой способ.
-- как только флаг последнего изображения ~last?~ = ~t~, перестает
-  вызывать ~get-data~.
-- ждет завершения анализирующих потоков
-- вызывает склейку ~make-roll~ (сейчас ~make-roll-test~ отличие см. в ~демо версия~)
-
-~Анализирующий поток~
-Цель: анализ изображений, получение лучшего результата
-- получает таск, если он есть. Если нет, ждет 6 сек, проверяет снова. Если не появился,
-  выходит, иначе берет таск
-- проверяет флаг ~last?~ - если t, прекращает работу и выходит, даже если есть
-  необработанные таски. Это сделано, чтоб не анализировать много одинаковых скринов,
-  которые успел сделать главный поток, т.к. он работает быстрее
-- пока ~last?~ = nil и таски есть, исполняет каждый таск
-- получает все результаты анализа таска
-- выбирает лучший результат, формирует структуру типа ~result~, сохраняет туда лучший
-  результат и 2 изображения из таска
-- пушит рузальтат в очередь результатов
-
-~Склейка~
-Цель: склеить все картинки в большой рулон
-- берет результаты из очереди результатов по одному и склеивает их, пока они не кончатся
-- каждый склеенный массив сохраняет в очередь ~appended-results~,
-  чтоб потом можно было объединить его в пару с другим склеенным массивом
-  и создать таск для них
-- если не получили 1 большое изображение (рулон)
-- создать таски для склеенных изображений
-- открыть потоки для их анализа
-- дождаться результатов
-- склеить по ним
-- повторять до тех пор, пока не получим единый рулон
-
-*** Запуск потоков
-
-Создает несколько потоков и возвращает:
-- блокировку, которую они разделяют
-- список имен потоков, чтобы можно было обращаться к ним
-
-#+NAME: create_threads
-#+BEGIN_SRC lisp :noweb yes
-  (defun create-threads (num-of-cores)
-    (let* ((lock (bt:make-lock))
-           (thread-names))
-      ;; генерим потоки
-      (do ((i 0 (incf i)))
-          ((= i (- num-of-cores 1)))
-        (let ((t-name (intern (format nil "thread~A" i))))
-          (format t "~%thread '~A' created" t-name)
-          (let ((bt:*default-special-bindings*
-                 `((tasks . ,tasks)
-                   (last? . ,last?)
-                   (results . ,results)
-                   (append-results . ,append-results))))
-            (setf t-name
-                  (bt:make-thread
-                   <<thread>>))
-            (push t-name thread-names)))
-        (values lock
-                thread-names))))
-#+END_SRC
-
-****** Структуры
-
-Обращение к полям этих структур есть в ~get-data~, поэтому их следует
-определить до нее.
-
-Структура ~append-results~ включает в себя:
-массив склеенного изображения
-
-#+NAME: structs
-#+BEGIN_SRC lisp :noweb yes
-  (in-package  #:cl-autogui)
-
-  (defstruct append-results
-    append-image)
-    <<the_result>>
-#+END_SRC
-
-****** Создание тасков
-
-Мы формируем ~y-points~ следующим образом:
-
-#+NAME: make_y_points
-#+BEGIN_SRC lisp :noweb yes
-  (loop :for pnt :from height-down :downto 0 :collect pnt)
-#+END_SRC
-
-Поскольку ~image-down~ накладывается на ~image-up~, то мы будем
-использовать именно координаты ~Y~ изображния ~image-down~. Они нам нужны
-снизу-доверху.
-
-Лямбда-функция принимает три параметра от таска, который ее
-содержит: image-up, image-down и список y-points. (Я не знаю как дать лямбде доступ к
-полям таска, в котором она сама же находится, по-другому). Нужна, чтоб исполнить таск,
-будет вызываться с помощью ~funcall~
-
-Механизм работы:
-- сделать image-up и image-down битовыми, так их скорее анализировать
-- исполнить цикл столько раз, сколько у нас координат Y внутри списка y-points:
-- на каждой итерации цикла отксорить 2 картинки с текущим y-point
-- проанализировать результат ксора
-- это первая итерация цикла?
-Да!
-- вызываем analysis с порогом белых точек по умолчанию
-- если analysis вернул какой-то результат, сохранить его в cur-results
-НЕТ!
-- получаем  порог белых точек из предыдущего результата
-- вызываем analysis с ним
-- если analysis вернул какой-то результат, сохранить его в cur-results
-- после окончания цикла вернуть cur-results
-
-Cur-results нам еще понадобятся
-
-#+NAME: lambda
-#+BEGIN_SRC lisp :noweb yes
-  (lambda (image-up image-down y-points)
-    (let* ((cur-results)
-           (bit-image-up (make-bit-image image-up))
-           (bit-image-down (make-bit-image
-                            image-down)))
-      (do ((i (length y-points) (- i 1)))
-          ((= i 0))
-        (let ((y-point (car y-points)))
-          ;; убираем его из списка y-point-ов
-          (setf y-points (cdr y-points))
-          ;; если это первая итерация цикла и нет данных
-          ;; и никаких результатов еще нет
-          (if (null cur-results)
-              ;; анализируем изображение с текущим y-point
-              ;; и допустимым кол-вом белых точек по умолчанию
-              (let ((amount (analysis
-                             (xor-area bit-image-up
-                                       bit-image-down
-                                       y-point)
-                             y-point)))
-                ;; если какой-то результат получен,
-                (if amount
-                    (progn
-                      (setf cur-results (cons
-                                         (cons
-                                          amount
-                                          y-point)
-                                         cur-results)
-                            ))))
-              ;; если результаты были, получаем новый
-              ;; порог белых точек
-              (let* ((last-result (car cur-results))
-                     (white (cdr (car last-result)))
-                     ;; вызываем анализ с этим порогом
-                     (amount (analysis
-                              (xor-area bit-image-up
-                                        bit-image-down
-                                        y-point)
-                              y-point white)))
-                ;; если какой-то результат получен,
-                (if amount
-                    ;; записываем в в текущий пулл результатов
-                    (progn
-                      (setf cur-results (cons
-                                         (cons amount
-                                               y-point)
-                                         cur-results))
-                      ))))))
-      cur-results
-      ))
-
-#+END_SRC
-
-Тест для лямбды.
-
-#+NAME: lambda_test
-#+BEGIN_SRC lisp :noweb yes
-  ;; (time
-  ;;  (block lambda-test
-  ;;    (let* ((arr1 (binarization (load-png "~/Pictures/screen0.png")))
-  ;;           (arr2 (binarization (load-png "~/Pictures/screen1.png"))))
-  ;;      (create-task arr1 arr2 "~/Pictures/screen10.png"
-  ;;                   "~/Pictures/screen10.png")
-  ;;      (let* ((cur-task (aref tasks 0))
-  ;;             (cur-res (funcall (task-fn cur-task)
-  ;;                               (task-image-up cur-task)
-  ;;                               (task-image-down cur-task)
-  ;;                               (task-y-points cur-task))))
-  ;;        (format t "~% ~A" cur-res))))
-  ;;  )
-#+END_SRC
-
-~create-task~ вызывается из ~get-data~ и делает нам задание для 2-х
-изображений. Задание выглядит как заполненная структура task: массивы 2-х
-изображений и список точек ~y-points~ (координаты Y).
-
-На выходе ~create-task~ запушит новую заполненную структуру в очередь
-тасков, которая реализована как список.
-
-Сначала создадим пулл результатов и тасков и установим флаг ~last?~ в
-~nil~. Если при дальнейшем анализе 2-х изображений мы решим, что они
-одинаковые, флаг изменится на ~t~.
-
-~results~ нужен чтобы хранить лучший результат каждого выполненного
-таска. По нему будет производиться склейка
-
-~appended-results~ хранят в себе склеенные изображения. Они нужны, чтоб
-из них новых тасков наделать
-
-#+NAME: create_tasks
-#+BEGIN_SRC lisp :noweb yes
-  (in-package  #:cl-autogui)
-
-  <<the_task>>
-
-  (defun create-task (image-up image-down &optional image-up-path image-down-path)
-    ;;   (format t "~% make-task tasks length ~A " (length tasks))
-    (destructuring-bind (height-down width-down &optional colors-down)
-        (array-dimensions image-down)
-      (let* ((new-task (make-task :y-points <<make_y_points>>
-                                  :image-up image-up
-                                  :image-down image-down
-                                  :image-up-path image-up-path
-                                  :image-down-path image-down-path
-                                  :fn
-                                  <<lambda>>)))
-        ;;(format t "~% new-task ~A" new-task)
-        (setf tasks (append tasks (list new-task)))
-        )))
-     <<get_data>>
-     <<find-best>>
-  ;; <<get_area_merge_results>>
-  ;; <<lamda_test>>
-
-#+END_SRC
-
-***** Функция подсчета живых потоков
-
-Вызывается из ~screen-scan~.
-
-Принимает список имен потоков, которые надо проверить "на живость".
-
-#+NAME: alive_threads_counter
-#+BEGIN_SRC lisp :noweb yes
-
-  (defun alive-threads-counter (thread-names)
-    (let ((alive-t-cnt 0))
-      (do ((i 0 (incf i)))
-          ((= i (length thread-names)))
-        ;;(format t "~% nth ~A thread-name ~A" i (nth i thread-names))
-        ;; если поток жив
-        (if (bt:thread-alive-p (nth i thread-names))
-            ;; (format t "~% alive ~A "(nth i thread-names))
-            ;; инкрементируем счетчик
-            (incf alive-t-cnt)))
-      alive-t-cnt))
-#+END_SRC
-
-***** Склеивание картинок
-
-
-****** append-image: склеить 2 массива начиная от заданной Y-координаты
-
-~аppend-image~ вызывается из ~make-roll-test~ и поэтому должна быть определена заранее
-принимает 2 массива с изображениями, которые должны иметь одинаковую
-ширину и кол-во байт на пиксель, точку, от которой будет производиться склейка,
-и возвращает склеенный массив.
-
-#+NAME: append_image
-#+BEGIN_SRC lisp :noweb yes
-  (in-package  #:cl-autogui)
-
-  (defun append-image (image-up image-down y-point)
-    (destructuring-bind (height-down width-down &optional colors-down)
-        (array-dimensions image-down)
-      ;; (destructuring-bind (height-up width-up &optional colors-up)
-      ;;     (array-dimensions image-up)
-      (let* ((new-height (+ height-down y-point))
-             (new-dims (if (null colors-down)
-                           (list new-height width-down)
-                           (list new-height width-down colors-down)))
-             (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
-        (destructuring-bind (height-new width-new &optional colors-new)
-            (array-dimensions image-new)
-          (format t "~%  append-image: height-new ~A width-new ~A y-point ~A"
-                  height-new width-new y-point))
-        ;; макрос для прохода по блоку точек
-        (macrolet ((cycle ((py px height width &optional &body newline)
-                           &body body)
-                     `(do ((qy ,py (incf qy)))
-                          ((= qy ,height))
-                        (do ((qx ,px (incf qx)))
-                            ((= qx ,width))
-                          ,@body)
-                        ,@newline)))
-          ;; копируем первую картинку в новый массив
-          ;; от ее начала до точки склейки, или до ее конца,
-          ;; смотря что случится раньше
-          (if (null colors-down)  ;; TODO: тут надо проверять цвета первой картинки
-              ;;(cycle (0 0 (min height-down y-point) width-down)
-              (cycle (0 0 y-point width-down)
-                     (setf (aref image-new qy qx)
-                           (aref image-up qy qx)))
-              ;; else
-              (cycle (0 0 y-point width-down)
-                     (do ((qz 0 (incf qz)))
-                         ((= qz colors-down))
-                       (setf (aref image-new qy qx qz)
-                             (aref image-up qy qx qz)))))
-          ;; копируем вторую картинку в новый массив
-          ;; от ее начала до конца
-          (if (null colors-down)
-              (let ((new-y y-point))
-                (cycle (0 0 height-down width-down (incf new-y))
-                       (setf (aref image-new new-y qx)
-                             (aref image-down qy qx))))
-              ;; else
-              (let ((new-y y-point))
-                (cycle (0 0 height-down width-down (incf new-y))
-                       (do ((rz 0 (incf rz)))
-                           ((= rz colors-down))
-                         (setf (aref image-new new-y qx rz)
-                               (aref image-down qy qx rz)))))))
-        image-new)))
-
-  ;; (block test-append-image-fullcolor
-  ;;   (let* ((arr1 (x-snapshot :x 0 :y 0 :width 755 :height 300))
-  ;;          (arr2 (x-snapshot :x 100 :y 100 :width 755 :height 300))
-  ;;          (array (append-image arr1 arr2 200)))
-  ;;     (destructuring-bind (height width  &rest rest)
-  ;;         (array-dimensions array)
-  ;;       (save-png width height "~/Pictures/result.png" array))))
-
-
-  ;; (block test-append-image-grayscale
-  ;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 600)))
-  ;;          (arr2 (binarization (x-snapshot :x 0 :y 555 :width 755 :height 130)))
-  ;;          (array (append-image arr1 arr2 600)))
-  ;;     (destructuring-bind (height width  &rest rest)
-  ;;         (array-dimensions array)
-  ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
-#+END_SRC
-
-*** Анализ изображений
-
-~Необходимые понятия:~
-~область наложения~ - область, где одно изображение накладывается
-на другое. Область наложения не может иметь бОльшую высоту, чем высота накладываемого
-изображения.
-
-~общий пулл результатов~ - список, который содержит в себе лучшие результаты
-для всех обработанных картинок и массивы самих картинок
-
-~текущий пулл результатов~ - список, который содержит в себе все результаты анализа
-текущей пары картинок
-~image-up~ это изображение, которое находится выше по рулону страницы выдачи. Это
-просто ранее полученное изображение. При наложении мы будем накладывать НА него
-~image-down~ - это более позднее изображение, находится ниже по рулону. ПРи наложениее
-мы будем накладывать ЕГО.
-
-~Зачем вообще анализировать изображения?~
-Нам надо как-то склеить все изображения в общий рулон. Для этого надо знать, куда
-клеить каждое изображение.
-
-~Как мы найдем подходящее место для склейки?~
-Будем накладывать последний скрин на предущий снизу вверх, строка за строкой, пока не
-кончится высота последнего скрина, считать, сколько пикселей "почернело" из-за xor-a и
-сохранять результат в текущий пулл результатов. После того, как весь цикл накладывания пройден,
-выберем наилучший результат, а затем склеим.
-
-В качестве результата единичного анализа будем сохранять кол-во черных пискселей,
-кол-во белых пикселей и координату ~Y~, на которой это кол-во было получено в
-виде cons-пары: (( черные_точки . белые точки ). y-point).
-
-***** как понять, что страница выдачи кончилась? Функция find-best
-
-Флаг last? и функция find-best.
-Флаг изначально установлен в nil, а find-best при нахождении 2х одинаковых картинок
-установит его в t, так мы будем считать, что дошли до конца страницы выдачи.
-
-Как мы считаем, что картинки одинаковые?
-Максимальное кол-во черных точек было достигнуто на нулевом y-point. Иными словами,
-если лучший результат получен на нулевом y-point, мы считаем, что картинки одинаковые.
-
-***** функция потока
-
-Функция анализирующего потока:
-параметров не принимет, внутри себя использует 2 общих для всех потоков
-ресурса:
-- пулл тасков
-- общий пулл результатов
-- переменная ~cnt~, которая служит указателем на незанятые таски
-
-Алгоритм действия анализирующего потока:
-~начало~
-- если есть таск, взять 1
-- флаг last? = t?
-ДА!
-- прекращаем анализировать, выходим (эта проверка нужна, чтоб не анализировать
-  одинаковые скрины, даже если такси по ним есть,
-  если мы знаем, что уже достигли конца страницы выдачи)
- НЕТ!
-- таск взят?
-НЕТ!
-- таски есть?
-нет!
-- ждем 6 сек
-- Таски есть?
-нет!
-- выход
-ИНАЧЕ
-- вернуться на ~начало~
-~TOP~
-- вытащить данный из таска в локальные переменные
-- запустить обработку таска
-- найти лучший результат из текущего пул результатов
-- создать новую структуру результата, записать в нее: y-point лучшего
-  результата, кол-во черных точек лучшего результата, image-up,
-  image-down
-- запушить новый результат в общий пулл результатов
-- вернуться на ~начало~
-
-#+NAME: thread
-#+BEGIN_SRC lisp :noweb yes
-  (lambda ()
-    (with-open-file (out (format nil "thread~A" i) :direction :output
-                         :if-exists :supersede)
-      ;; (format out "~% ~A" tasks)
-      (tagbody
-       top
-         (format out "~% thread ~A" t-name)
-         (format out "~% tasks ~A"  (length tasks))
-         ;; если таск есть, забираем немедленно
-         (let ((cur-task (unless (null tasks)
-                           (bt:with-lock-held (lock)
-                             (pop tasks)))))
-           ;; (format out "~% length tasks ~A" (length tasks))
-           ;; ОЖИДАЕМ ТАСКИ
-           (if *last?*
-               ;; Если установлен флаг LAST - Выходим из потока
-               nil
-               ;; Иначе
-               (if (null cur-task)
-                   ;; THEN: Таск не взят
-                   ;; Таски кончились, надо немного поспать,
-                   ;; а потом проверить снова
-                   (progn
-                     (format out "~% wait for task")
-                     (sleep 6)
-                     ;; если тасков так и нет
-                     (if (null tasks)
-                         ;; выход
-                         nil
-                         ;; иначе идем забирать таск
-                         (go top)))
-                   ;; ELSE: ТАСК ЕСТЬ
-                   ;; Далее я не понимаю зачем это делается и нигде не объяснено..
-                   ;; Ответ: берешь данные из таска, чтоб передерать их в лямбду
-                   ;; которая в таске см блок lambda
-                   (let* ((image-up    (task-image-up cur-task))
-                          (image-down  (task-image-down cur-task))
-                          (y-points    (task-y-points cur-task))
-                          (fn          (task-fn cur-task))
-                          ;; получаем все результаты анализа
-                          (cur-results (funcall fn image-up image-down y-points)))
-                     (format out " ~% task image-up ~A image-down ~A"
-                             (task-image-up-path cur-task)
-                             (task-image-down-path cur-task))
-                     (force-output out)
-                     ;; сортируем результаты
-                     ;; по количеству черных точек
-                     ;; от самого выского результата до самого низкого
-                     (format out " ~% cur-results ~A" cur-results)
-                     (let* ((best-res (find-best cur-results))
-                            (new-result (make-result
-                                         :white (cdr (car best-res))
-                                         :black (car (car best-res))
-                                         :y-point (cdr best-res)
-                                         :image-up (task-image-up cur-task)
-                                         :image-down (task-image-down cur-task))))
-                       ;;(format out "~% sorted-result ~A" best-res)
-                       ;; выводим результат
-                       (format out "~% ----
-                                    ~% y-point ~A ~% image-up ~A
-                                    ~% image-down ~A
-                                    ~% amount ~A
-                                    ~% ----"
-                               (result-y-point new-result)
-                               (task-image-up-path cur-task)
-                               (task-image-down-path cur-task)
-                               (result-black new-result))
-                       (force-output out)
-                       (bt:with-lock-held (lock)
-                         (setf *results-queue* (append *results-queue*
-                                               (list new-result))))
-                       ;;(format out "~% results ~A" results)
-                       ;; идем снова брать таск
-                       (go top)))))))))
-#+END_SRC
-
-*** демо версия
-
-Это упрощенный офлайн демо-тест.
-Схематично работает так же, как основной механизм.
-
-- собрать картинки
-- создать для них таски
-- проанализировать их
-- найти лучшие результаты
-- по полученным результатам склеить
-- выход
-
-Отличие от основного механизма:
-- скрины должны быть сделаны заранее и загружаться с помощью get-data-ofline, а могут
-  получаться прямо сейчас и тогда вызывается get-data
-- кол-во скринов ограничено счетчиком cnt, т.е. мы не используем флаг last? для
-  определения последней картинки, а определяем ее вручную, устанавливая лимит
-- склейка происходит не "до победы", т.е. не до составления одного общего рулона из
-  всех картинок. а только по имеющимся результатам. Инаыми словами, сколько тасков было
-  создано, столько картинок-склеекполучается на выходе.
-
-Получение картинок:
-загружаем картинки, тут же бинаризируем их и делаем таски.
-
-#+NAME: get-data-ofline
-#+BEGIN_SRC lisp :noweb yes
-
-  (defun get-data-ofline (image-up image-down)
-    (format t "~% get-data-ofline")
-    (create-task (binarization (load-png image-up))
-                 (binarization (load-png image-down))))
-
-#+END_SRC
-
-Сборка и анализ тасков:
-Сначала загружаем картинки и делаем таски для них
-Когда нужно кол-во картинок загружено (определяется screen-cnt), дотсаем из каждого
-таска данные для анализа: Image-up и image-down, список y-points, т.к. список координат
-Y, по которым xor-area и analysis будут ксорить и анализировать картинки .
-После того, как анализ одного таска полностью завершен, сортируем его реультаты и ищем
-лучший. Затем записываем лучший результат и 2 картинки, на которых он был получен, в
-пулл результатов.
-
-Как только все картинки проанализированы, вызываем склейку.
-
-#+NAME: demo_get_area_merge_results_tests
-#+BEGIN_SRC lisp :noweb yes
-  (defun demo-get-area-merge-results ()
-    (let ((screen-cnt 0))
-      (tagbody top
-         (get-data-ofline (format nil
-                                  "~~/Pictures/screen~A.png"
-                                  screen-cnt)
-                          (format nil
-                                  "~~/Pictures/screen~A.png"
-                                  (incf screen-cnt)))
-         (incf screen-cnt)
-
-         ;; (get-data (format nil
-         ;;                   "~~/Pictures/screen~A.png"
-         ;;                   screen-cnt)
-         ;;           (format nil
-         ;;                   "~~/Pictures/screen~A.png"
-         ;;                   (incf screen-cnt)))
-         ;; (incf screen-cnt)
-
-         ;; делаем таски для 3 картинок
-         (if (< screen-cnt 8)
-             (go top)
-             (progn
-               (format t "~% demo: amount of tasks ~A" (length tasks))
-               (let* ((image-up)
-                      (image-down)
-                      (y-points)
-                      (cur-results)
-                      (cur-task))
-                 (do ((i (length tasks) (decf i)))
-                     (( = i 0))
-                   ;; получаем данные из таска
-                   (setf cur-task (pop tasks)
-                         image-up (task-image-up cur-task)
-                         image-down (task-image-down cur-task)
-                         y-points (task-y-points cur-task)
-                         cur-results (funcall (task-fn cur-task)
-                                              image-up
-                                              image-down
-                                              y-points))
-                   ;; отсортировали результаты анализа текущего таска
-                   (let* ((best-res (find-best cur-results))
-                          (new-result (make-result
-                                       :white (cdr (car best-res))
-                                       :black (car (car best-res))
-                                       :y-point (cdr best-res)
-                                       :image-up image-up
-                                       :image-down image-down)))
-                     (format t "~% best-result i: ~A
-                                  ~% ~A" i best-res)
-                     ;; записываем лучший результат
-                     (setf *results-queue* (append *results-queue* (list new-result)))
-                     )
-                   )
-                 (make-roll-test)
-                 ))))))
-#+END_SRC
-
-Для полного счастья не хватает только тестов.
-Внимание! Пути на вашем компе могут отличаться, как и имена картинок.
-Если попытаться вернуть результаты не в локальную переменную, в поток nil
-(наш вывод в мини-буфере внизу экрана), память кончается.
-
-#+NAME: get_area_merge_results_tests
-#+BEGIN_SRC lisp :noweb yes
-  (in-package  #:cl-autogui)
-
-  ;; (time
-  ;; (block get-area-merge-reselt-test
-  ;;    (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-  ;;    (sleep 8)
-  ;;    (let ((result (get-area-merge-results 4)))
-  ;;    )))
-
-  ;; (time
-  ;;  (block ofline-demo-test
-  ;;    (demo-get-area-merge-results)))
-
-  ;; (time
-  ;;  (block online-demo-test
-  ;;    (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-  ;;    (sleep 8)
-  ;;    (demo-get-area-merge-results)))
-#+END_SRC
-
-***** old code
-
-Здесь главный поток занимается получением данных для анализирующего.
-~get-data~ скринит экран, сохраняет изображения и вызывает ~make-task~
-для каждой новой пары изображений.
-
-Затем мы ждем некоторое время, чтоб скрининг не происходил слишком быстро, иначе
-анализирующие потоки не успевают за главным и скрининг становится почти бесконечным.
-(На данный момент анализирующие потоки все равно не успевают, поэтому по достижении
-конца страницы выдачи мы получаем несколько одинаковых скринов)
-
-Если какие-то результаты есть, проверяем флаг ~last?~. Если он ~t~, мы достигли конца
-страницы и скрининг прекращается. Мы ждем завершения работы потоков
-и вызываем склейку.
-
-На данный момент вместо вызова ~make-roll~ мы вызываем ~make-roll-test~,
-которая описана в разделе ~демо версия~.
-
-#+NAME: screen_and_waiting
-#+BEGIN_SRC lisp :noweb yes
-  (in-package #:cl-autogui)
-
-  ;; после того, как создали все потоки и записали их имена,
-  ;; скриним экран
-  (let ((screen-cnt 0))
-    (tagbody
-     get-data
-       ;;скриним и составляем таски
-       (get-data (format nil
-                         "~~/Pictures/screen~A.png"
-                         screen-cnt)
-                 (format nil
-                         "~~/Pictures/screen~A.png"
-                         (incf screen-cnt)))
-       (incf screen-cnt)
-
-       (sleep 8)
-       (format t "~% length results ~A" (length results))
-       ;;(format t "~% length tasks ~A" (fill-pointer tasks))
-       ;;(format t "~% length results ~A" (car results))
-       (if (null *results-queue*)
-           ;; пока не дойдем до последней пары картинок
-           (go get-data)
-           (progn
-             (do ((i 0 (incf i)))
-                 ((= i (length *results-queue*)))
-               (let ((struct (nth i *results-queue*)))
-                 (format t "~% y ~A black ~A"
-                         (result-y-point struct)
-                         (result-black struct))))
-             (if *last?*
-                 (progn
-                   ;; (format t "~% length results ~A" (car results))
-                   (tagbody
-                    check-threads
-                      ;; (format t "~% results ~A tasks~A" (length results)
-                      ;;         (length tasks))
-                      ;; счетчик живых потоков
-                      (let ((alive-threads (alive-threads-counter thread-names)))
-                        ;;(format t "~% alive threads ~A " alive-threads)
-                        ;; если живых потоков нет
-                        (if (eql 0 alive-threads)
-                            ;; возвращаем результаты
-                            ;;(progn
-                            ;;(format t "~% results ~A" results)
-                            ;;(return-from get-area-merge-results results)
-                            (progn
-                              ;;(make-roll num-of-cores)
-                              ;; очищаем пулл тасков, т.к. он нам еще понадобится
-                              (format t "~% results ~A" (length *results-queue*))
-                              (make-roll-test)
-                              (return-from get-area-merge-results t))
-                            ;; иначе проверяем снова
-                            (progn
-                              (sleep .5)
-                              ;;(format t "~% wait")
-                              (go  check-threads))))))
-                 (go get-data))))))
-#+END_SRC
-
-Теперь сама склейка.
-Принимает на вход количество ядер, поскольку внутри себя вызывает функцию генерации
-потоков.
-Вызывается только после того, как все картинки со страницы выдачи были отскринены.
-
-Механизм работы:
-- берет результаты анализа и склеиает картинки до тех пор, пока результаты не кончатся
-- каждое склеенное изображение сохраняется в пулл склеенных изображений
-- затем эти изображения вынимаются и из них составляются таски
-- вызывается функция генерации потоков make-threads. Содержит в себе практически
-  неизмененную функцию потока из get-area-merge-reasults (различие только в том, что
-  эта если не обнаружит тасков, выходит тут же, а не ждет их появления)
-- make-threads пушит результаты анализа в пулл результатов
-- затем мы рекурсивно вызываем make-roll
-- условие завершения рекурсии - получение единого изображения
-
-#+NAME: make_roll
-#+BEGIN_SRC lisp :noweb yes
-  <<make_threads>>
-  (in-package  #:cl-autogui)
-  (defun make-roll (num-of-cores)
-    (tagbody
-     top
-       (format t "~% make-roll")
-       (format t "~% top f-p results ~A"
-               (fill-pointer results))
-       ;; результаты анализа есть?
-       (if (eql (fill-pointer results) 0)
-           ;; нет
-           (progn
-             (sleep 10)
-             (if (eql (fill-pointer results) 0)
-                 ;; все еще нет
-                 (format t "~% no results")
-                 (go top)))
-           ;; результаты есть!
-           (tagbody
-            append-images
-              (format t "~% append-images")
-              ;; получаем результаты анализа
-              (let* ((cur-task (vector-pop results))
-                     (image-up (result-image-up cur-task))
-                     (image-down (result-image-up cur-task))
-                     (y-point (result-y-point cur-task)))
-                (destructuring-bind (height-down width-down)
-                    (array-dimensions image-down)
-                  (destructuring-bind (height-up width-up)
-                      (array-dimensions image-up)
-                    (format t "~% height-down ~A width-down ~A height-up ~A width-up ~A"
-                            height-down width-down height-up width-up)))
-                (let ((appended-image (append-image image-up image-down y-point)))
-                  ;; пушим результаты склейки
-                  (vector-push appended-image append-results))
-                ;; результаты аналза кончились?
-                (if (not (eql (fill-pointer results) 0))
-                    ;; нет!
-                    (go append-images)
-                    ;; картинка получилась одна?
-                    (if (eql (fill-pointer append-results) 1)
-                        ;; да!
-                        (let ((roll (vector-pop append-results)))
-                          (destructuring-bind (height width)
-                              (array-dimensions roll)
-                            (save-png width height "~/Pictures/resut.png"
-                                      roll :grayscale)))
-                        ;; нет!
-                        ;; делаем таски из новых изображений
-                        (let ((flag)
-                              (image-down)
-                              (image-up))
-                          (tagbody
-                           do-tasks
-                             (if (null flag)
-                                 (progn
-                                   (setf image-down (vector-pop append-results))
-                                   (setf image-up (vector-pop append-results))
-                                   (setf flag 1)
-                                   (create-task image-up image-down)
-                                   (do ((i 0 (incf i)))
-                                       (( = i (fill-pointer tasks)))
-                                     (let ((fuck (aref tasks i)))
-                                       (format t "~% last y-point ~A"
-                                               (last (task-y-points fuck)))
-                                       (destructuring-bind (height-down width-down)
-                                           (array-dimensions (task-image-down fuck))
-                                         (destructuring-bind (height-up width-up)
-                                             (array-dimensions (task-image-up fuck))
-                                           (format t "~% task height-down ~A width-down ~A height-up ~A width-up ~A"
-                                                   height-down width-down
-                                                   height-up width-up))))
-                                     )
-
-                                   ;; склеенные картинки кончились?
-                                   (if (not (eql (fill-pointer append-results) 0))
-                                       ;; нет
-                                       (go do-tasks)
-                                       ;; да
-                                       (progn
-                                         (make-threads num-of-cores)
-                                         (format t "~% nil go top")
-                                         (format t "~% nil f-p ~A"
-                                                 (fill-pointer results))
-                                         (go top))))
-                                 (progn
-                                   (setf image-down (aref append-results
-                                                          (fill-pointer
-                                                           append-results)))
-                                   (setf image-up (vector-pop append-results))
-                                   (create-task image-up image-down)
-                                   (do ((i 0 (incf i)))
-                                       (( = i (fill-pointer tasks)))
-                                     (let ((fuck (aref tasks i)))
-                                       (format t "~% last y-point ~A"
-                                               (nth 0 (task-y-points fuck)))
-                                       (destructuring-bind (height-down width-down)
-                                           (array-dimensions (task-image-down fuck))
-                                         (destructuring-bind (height-up width-up)
-                                             (array-dimensions (task-image-up fuck))
-                                           (format t "~% task height-down ~A width-down ~A height-up ~A width-up ~A"
-                                                   height-down width-down
-                                                   height-up width-up))))
-                                     )
-
-                                   ;; склеенные картинки кончились?
-                                   (if (not (eql (fill-pointer append-results) 0))
-                                       ;; нет
-                                       (go do-tasks)
-                                       ;; да
-                                       (progn
-                                         (make-threads num-of-cores)
-                                         (format t "~% flag t go top")
-                                         (format t "~% t f-p ~A"
-                                                 (fill-pointer results))
-                                         (go top))))))))))))
-       ))
-
-#+END_SRC
-
-#+NAME: make_threads
-#+BEGIN_SRC lisp :noweb yes
-
-  (defun make-threads (num-of-cores)
-    (let* ((lock (bt:make-lock))
-           (thread-names))
-      ;; генерим потоки
-      (do ((i 0 (incf i)))
-          ((= i (- num-of-cores 1)))
-        (multiple-value-bind (name value)
-            (intern (format nil "thread~A" i))
-          (format t "~%  thread ~A" name)
-          (in-package  #:cl-autogui)
-          (setf name
-                (bt:make-thread
-                 (lambda ()
-                   (with-open-file (out (format nil "thread~A" i) :direction :output
-                                        :if-exists :supersede)
-                     ;; (format out "~% ~A" tasks)
-                     (tagbody
-                      top
-                        (format out "~%  f-p tasks ~A" (fill-pointer tasks))
-                        ;; если таск есть, заюираем немедленно
-                        (let* ((cur-task (if (not (eql (fill-pointer tasks) 0))
-                                             (bt:with-lock-held (lock)
-                                               (vector-pop tasks)))))
-                          ;; таск есть?
-                          (if (null cur-task)
-                              ;; нет
-                              nil
-                              ;; да
-                              (let* ((image-up)
-                                     (image-down)
-                                     (y-points)
-                                     (cur-results))
-                                (format out "~% get-area f-p ~A "
-                                        (fill-pointer tasks))
-                                ;; получаем данные из таска
-                                (setf image-up (make-bit-image
-                                                (task-image-up cur-task))
-                                      image-down
-                                      (make-bit-image (task-image-down cur-task))
-                                      y-points (task-y-points cur-task))
-                                (format out "%  y-points ~A "  y-points)
-                                ;; (format out "~% y-point ~A ~% name ~A
-                                ;;                ~% image-up ~A ~% image-down ~A"
-                                ;;         (car cur-task) name image-up image-down)
-
-                                ;; начинаем анализ
-                                (destructuring-bind (height-up width-up)
-                                    (array-dimensions image-up)
-                                  (do ((i (- height-up 1) (- i 1)))
-                                      ((< i 0))
-                                    ;; получаем текущий y-point
-                                    (let ((y-point (car y-points)))
-                                      ;; убираем его из списка y-point-ов
-                                      (setf y-points (cdr y-points))
-                                      ;; если это первая итерация цикла и нет данных
-                                      ;; и никаких результатов еще нет
-                                      (if (null cur-results)
-                                          ;; анализируем изображение с текущим y-point
-                                          ;; и допустимым кол-вом белых точек по умолчанию
-                                          (let ((amount (analysis
-                                                         (xor-area image-up
-                                                                   image-down y-point)
-                                                         y-point)))
-                                            ;; (format out "~% --- before
-                                            ;;                    ~% y-point ~A ~% name ~A
-                                            ;;                    ~% amount ~A"
-                                            ;;         y-point name amount)
-                                            ;; если какой-то результат получен,
-                                            (if amount
-                                                (progn
-                                                  ;; (format out "~% ----
-                                                  ;;            ~% y-point ~A ~% name ~A
-                                                  ;;             ~% amount ~A
-                                                  ;;              %---"
-                                                  ;;         y-point name amount)
-                                                  (setf cur-results (cons
-                                                                     (cons amount y-point)
-                                                                     cur-results)))))
-                                          ;; если результаты были, получаем новый
-                                          ;; порог белых точек
-                                          (let* ((last-result (car cur-results))
-                                                 (white (cdr (car last-result)))
-                                                 ;; вызываем анализ с этим порогом
-                                                 (amount (analysis
-                                                          (xor-area image-up
-                                                                    image-down
-                                                                    y-point)
-                                                          y-point white)))
-                                            ;; (format out "% white ~A" white)
-                                            ;; (format out "~% --- before
-                                            ;;                    ~% y-point ~A ~% name ~A
-                                            ;;                    ~% amount ~A
-                                            ;;                     %---"
-                                            ;;         y-point name amount)
-
-                                            ;; если какой-то результат получен,
-                                            (if amount
-                                                ;; записываем в в текущий пулл результатов
-                                                ;; (format out "~% amount ~A" amount)
-                                                (progn
-                                                  ;; (format out "~% ---
-                                                  ;;            ~% y-point ~A ~% name ~A
-                                                  ;;            ~% amount ~A"
-                                                  ;;         y-point name amount)
-                                                  (setf cur-results (cons
-                                                                     (cons amount
-                                                                           y-point)
-                                                                     cur-results))
-                                                  )))))))
-                                ;; сортируем результаты
-                                ;; по количеству черных точек
-                                ;; от самого выского результата до самого низкого
-                                (format out " ~% cur-results ~A" cur-results)
-                                (let* ((best-res (find-best cur-results))
-                                       (new-result (aref results
-                                                         (fill-pointer results))))
-
-                                  (format out "~% sorted-result ~A" best-res)
-                                  (setf (result-white new-result) (cdr (car best-res))
-                                        (result-black new-result) (car (car best-res))
-                                        (result-y-point new-result) (cdr best-res)
-                                        (result-image-up new-result)
-                                        (task-image-up cur-task)
-                                        (result-image-down new-result)
-                                        (task-image-down cur-task))
-                                  ;; записываем лучший результат
-                                  (bt:with-lock-held (lock)
-                                    (vector-push new-result results))
-                                  ;;(format out "~% results ~A" results)
-                                  ;; идем снова брать таск
-                                  (go top))))))))))
-          ;; сохраняем имя потока
-          (setf thread-names (cons name thread-names)))
-        )
-      (tagbody
-       check-threads
-         ;; (format t "~% results ~A tasks~A" (length results)
-         ;;         (length tasks))
-         ;; счетчик живых потоков
-         (let ((alive-threads 0))
-           (do ((i 0 (incf i)))
-               ((= i (length thread-names)))
-             ;;(format t "~% nth ~A thread-name ~A" i (nth i thread-names))
-             ;; если поток жив
-             (if (bt:thread-alive-p (nth i thread-names))
-                 ;; (format t "~% alive ~A "(nth i thread-names))
-                 ;; инкрементируем счетчик
-                 (incf alive-threads)))
-           ;;(format t "~% alive threads ~A " alive-threads)
-           ;; если живых потоков нет
-           (if (eql 0 alive-threads)
-               ;; возвращаем результаты
-               ;;(progn
-               ;;(format t "~% results ~A" results)
-               ;;(return-from get-area-merge-results results)
-               (return-from make-threads t)
-               ;; иначе проверяем снова
-               (progn
-                 (sleep .5)
-                 ;;(format t "~% wait")
-                 (go  check-threads)))))))
-
-
-#+END_SRC
-
 * Модель producer-consumers
 
 Итак, мы хотим, реализовать систему, в которой один поток-поставщик
@@ -1313,10 +244,11 @@ TRUE. Когда это произойдет поток продолжит ис�
   <<fake_events>>
 
   (defun pgdn ()
+    (sleep 1)
     (perform-key-action t 117)
-    (sleep .1)
+    (sleep 1)
     (perform-key-action nil 117)
-    (sleep .5))
+    (sleep 1))
 
   <<x_snapshot>>
   <<binarization>>
@@ -1460,7 +392,7 @@ TRUE. Когда это произойдет поток продолжит ис�
 
 **** Fake Events
 :PROPERTIES:
-:xtest: xtest
+:xtest: xlib/xtest
 :END:
 
 NB: По какой-то странной причине (предположительно - разные версии
@@ -1897,6 +829,8 @@ NB: По какой-то странной причине (предположит
 #+BEGIN_SRC lisp :noweb yes
   (in-package #:cl-autogui)
 
+  <<open_browser>>
+
   (defun find-thread-by-name (thread-name)
     (cdr (assoc thread-name
                 (mapcar #'(lambda (thread)
@@ -1938,6 +872,35 @@ NB: По какой-то странной причине (предположит
   <<analize_img_pair>>
   <<find_best>>
   <<the_result>>
+#+END_SRC
+
+**** Открытие брозера
+
+Чтоб получить скрины с какого-либо сайта, надо сначала открыть сам сайт.
+С помощью ~run-programm~ запускаем браузер (в нашем случае это firefox) с
+заданным URL.
+
+#+NAME: open_browser
+#+BEGIN_SRC lisp
+  (in-package  #:cl-autogui)
+
+  (defun open-browser (browser-path url)
+    (let ((proc (sb-ext:run-program
+                 `,browser-path
+                 `(,url)
+                 :input :stream :output :stream)))
+      (if proc
+          (with-open-stream (input (sb-ext:process-input proc))
+            (with-open-stream (output (sb-ext:process-output proc))
+              (do ((a-line (read-line output nil 'eof)
+                           (read-line output nil 'eof)))
+                  ((eql a-line 'eof))
+                (format t "~A" a-line)
+                (force-output output))))
+      (format t "~% open-browser: didn't run firefox"))))
+
+  ;; (block open-browser-test
+  ;;  (open-browser "/usr/bin/firefox" *hh-teaser-url*))
 #+END_SRC
 
 **** Analize image pair
@@ -2455,14 +1418,96 @@ NB: По какой-то странной причине (предположит
 
   <<create_roll>>
 #+END_SRC
+**** Склеивание картинок
+
+~аppend-image~
+принимает 2 массива с изображениями, которые должны иметь одинаковую
+ширину и кол-во байт на пиксель, точку, от которой будет производиться склейка,
+и возвращает склеенный массив.
+
+#+NAME: append_image
+#+BEGIN_SRC lisp :noweb yes
+  (in-package  #:cl-autogui)
+
+  (defun append-image (image-up image-down y-point)
+    (destructuring-bind (height-down width-down &optional colors-down)
+        (array-dimensions image-down)
+      ;; (destructuring-bind (height-up width-up &optional colors-up)
+      ;;     (array-dimensions image-up)
+      (let* ((new-height (+ height-down y-point))
+             (new-dims (if (null colors-down)
+                           (list new-height width-down)
+                           (list new-height width-down colors-down)))
+             (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
+        (destructuring-bind (height-new width-new &optional colors-new)
+            (array-dimensions image-new)
+          (format t "~%  append-image: height-new ~A width-new ~A y-point ~A"
+                  height-new width-new y-point))
+        ;; макрос для прохода по блоку точек
+        (macrolet ((cycle ((py px height width &optional &body newline)
+                           &body body)
+                     `(do ((qy ,py (incf qy)))
+                          ((= qy ,height))
+                        (do ((qx ,px (incf qx)))
+                            ((= qx ,width))
+                          ,@body)
+                        ,@newline)))
+          ;; копируем первую картинку в новый массив
+          ;; от ее начала до точки склейки, или до ее конца,
+          ;; смотря что случится раньше
+          (if (null colors-down)  ;; TODO: тут надо проверять цвета первой картинки
+              ;;(cycle (0 0 (min height-down y-point) width-down)
+              (cycle (0 0 y-point width-down)
+                     (setf (aref image-new qy qx)
+                           (aref image-up qy qx)))
+              ;; else
+              (cycle (0 0 y-point width-down)
+                     (do ((qz 0 (incf qz)))
+                         ((= qz colors-down))
+                       (setf (aref image-new qy qx qz)
+                             (aref image-up qy qx qz)))))
+          ;; копируем вторую картинку в новый массив
+          ;; от ее начала до конца
+          (if (null colors-down)
+              (let ((new-y y-point))
+                (cycle (0 0 height-down width-down (incf new-y))
+                       (setf (aref image-new new-y qx)
+                             (aref image-down qy qx))))
+              ;; else
+              (let ((new-y y-point))
+                (cycle (0 0 height-down width-down (incf new-y))
+                       (do ((rz 0 (incf rz)))
+                           ((= rz colors-down))
+                         (setf (aref image-new new-y qx rz)
+                               (aref image-down qy qx rz)))))))
+        image-new)))
+
+  ;; (block test-append-image-fullcolor
+  ;;   (let* ((arr1 (x-snapshot :x 0 :y 0 :width 755 :height 300))
+  ;;          (arr2 (x-snapshot :x 100 :y 100 :width 755 :height 300))
+  ;;          (array (append-image arr1 arr2 200)))
+  ;;     (destructuring-bind (height width  &rest rest)
+  ;;         (array-dimensions array)
+  ;;       (save-png width height "~/Pictures/result.png" array))))
+
+
+  ;; (block test-append-image-grayscale
+  ;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 600)))
+  ;;          (arr2 (binarization (x-snapshot :x 0 :y 555 :width 755 :height 130)))
+  ;;          (array (append-image arr1 arr2 600)))
+  ;;     (destructuring-bind (height width  &rest rest)
+  ;;         (array-dimensions array)
+  ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
+#+END_SRC
+
 **** Create roll
+
 Взаимодествует с очередью результатов. Вызывается после того, как была найдена
 последняя картинка, а поток-поставщик и потоки-потребители - убиты.
 Склейка происходит линейно: сначала склеиваем изображения 1 и 2, потом получившийся
 рулон и изображение 3 и т.д. Пока не исчерпаем все изображения. Порядок
 обработанных результатов, которые мы берем из очереди, очень важен, если его не
 соблюдать, то склейка превратится в мусор.
-
 
 Алгорим:
 - взять первый результат из ~results-queue~
@@ -2597,9 +1642,7 @@ NB: По какой-то странной причине (предположит
     image-up image-down)
 #+END_SRC
 
-
-* ------------------------------- я остановился тут
-
+* Экспорт
 
 #+NAME: pc
 #+BEGIN_SRC lisp :noweb yes :tangle pc.lisp
@@ -2607,7 +1650,6 @@ NB: По какой-то странной причине (предположит
   <<libs>>
   <<defparams>>
   (in-package #:cl-autogui)
-  <<structs>>
   <<the_task>>
   <<open-browser>>
   <<display-macros>>
@@ -2624,7 +1666,7 @@ NB: По какой-то странной причине (предположит
   ;; (block producer-consumers-test
   ;; (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
   ;; (sleep 8)
-  ;;(defparameter *clear*
+  ;; (defparameter *clear*
   ;;     (multiple-value-bind (thread-pool task-queue-lock outlock)
   ;;         (create-threads 3)
   ;;       (declare (ignore thread-pool task-queue-lock outlock))
@@ -2633,18 +1675,18 @@ NB: По какой-то странной причине (предположит
   ;;          (bt:all-threads))))))
 
   (defun producer-test ()
-  (let* ((cv              (bt:make-condition-variable))
-         (task-queue-lock (bt:make-lock "task-queue-lock"))
-         (outlock         (bt:make-lock outlock)))
-    (bt:make-thread (lambda ()
-                      (producer cv task-queue-lock))
-                    :name "producer-thread")
-    (loop
+    (let* ((cv              (bt:make-condition-variable))
+           (task-queue-lock (bt:make-lock "task-queue-lock"))
+           (outlock         (bt:make-lock "outlock")))
+      (bt:make-thread (lambda ()
+                        (producer cv task-queue-lock))
+                      :name "producer-thread")
+      (loop
          (if (eql (length *task-queue*) 5)
              (progn
-             (stop-report-and-kill-producer
-              outlock "stop-report-andd-kill-producer: last image!")
-             (return-from producer-test t))))))
+               (stop-report-and-kill-producer
+                outlock "stop-report-andd-kill-producer: last image!")
+               (return-from producer-test t))))))
 
 
   ;; (block producer-test
@@ -2698,34 +1740,3 @@ results = tasks
 записать полученные массивы в results
 если длина results != 1, т.е мы не получили цнлый рулон картинку
 ~go top~
-
-* Экспорт
-
-Теперь можно экспортировать некоторые функции и переметиться в созданный пакет
-
-#+NAME: parcer
-#+BEGIN_SRC lisp :tangle parser.lisp :noweb yes
-<<libs>>
-
-<<defparams>>
-
-<<open-browser>>
-
-<<display-macros>>
-
-<<x-snapshot>>
-
-<<save-png>>
-
-<<fake_events>>
-
-<<make_bit_image>>
-
-<<append-xor>>
-
-<<create_tasks>>
-
-;; <<producer>>
-
-<<merge_images>>
-#+END_SRC
