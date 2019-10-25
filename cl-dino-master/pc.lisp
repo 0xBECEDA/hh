@@ -1010,7 +1010,7 @@
   ;; (dbg "~%thread 'producer-thread' created")
   (loop :for th-idx :from 0 :to (- num-of-cores 1) :collect
        (progn
-         (dbg "~%thread 'consumer~A' created" th-idx)
+         (dbg "~%thread 'consumer-~A' created" th-idx)
          (bt:make-thread
           (lambda ()
             (consumer))
@@ -1021,7 +1021,7 @@
 ;; теперь ты можешь собрать скрины онлайн
 (block producer-consumers-test
   (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-  (sleep 8)
+  (sleep 3)
   (create-threads 3))
 
 ;; (defun producer-test ()
