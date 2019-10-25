@@ -31,14 +31,53 @@
            #:x-find-color))
 (in-package  #:cl-autogui)
 
+(in-package #:cl-autogui)
+
+(defmacro with-display (host (display screen root-window) &body body)
+  `(let* ((,display (xlib:open-display ,host))
+          (,screen (first (xlib:display-roots ,display)))
+          (,root-window (xlib:screen-root ,screen)))
+     (unwind-protect (progn ,@body)
+       (xlib:close-display ,display))))
+
+(defmacro with-default-display ((display &key (force nil)) &body body)
+  `(let ((,display (open-default-display)))
+     (unwind-protect
+          (unwind-protect
+               ,@body
+            (when ,force
+              (display-force-output ,display)))
+       (close-display ,display))))
+
+(defmacro with-default-display-force ((display) &body body)
+  `(with-default-display (,display :force t) ,@body))
+
+(defmacro with-default-screen ((screen) &body body)
+  (let ((display (gensym)))
+    `(with-default-display (,display)
+       (let ((,screen (display-default-screen ,display)))
+         ,@body))))
+
+(defmacro with-default-window ((window) &body body)
+  (let ((screen (gensym)))
+    `(with-default-screen (,screen)
+       (let ((,window (screen-root ,screen)))
+         ,@body))))
+
+(defun x-size ()
+  (with-default-screen (s)
+    (values
+     (screen-width s)
+     (screen-height s))))
+
 (defparameter *langs* "rus+eng")
-(defparameter *default-width* 1295)
-(defparameter *default-height* 668)
+(defparameter *default-width*  (multiple-value-bind (x y) (x-size) x))
+(defparameter *default-height* (multiple-value-bind (x y) (x-size) y))
 (defparameter *teaser-width* 690)
-(defparameter *snap-width* 755)
-(defparameter *snap-height* 950)
 (defparameter *snap-x* 100)
 (defparameter *snap-y* 100)
+(defparameter *snap-width* (- *default-width* *snap-x*))
+(defparameter *snap-height* (- *default-height* *snap-y*))
 (defparameter *default-x* 60)
 (defparameter *default-y* 37)
 (defparameter *mouse-left* 1)
@@ -136,20 +175,19 @@
 (defparameter *results-queue* nil)
 (in-package #:cl-autogui)
 
-(defmacro append-queue (lock queue elt)
-  `(bt:with-lock-held (,lock)
-     (setf ,queue
-           (append ,queue
-                   (list ,elt)))))
-
-(defmacro pop-queue (lock queue)
-  `(bt:with-lock-held (,lock)
-     (pop ,queue)))
-
 (defmacro dbg (msg &rest params)
   `(bt:with-lock-held (*outlock*)
      (format t ,msg ,@params)
      (finish-output)))
+
+(defmacro dbg-task-queue ()
+  `(bt:with-lock-held
+    (*task-queue-lock*)
+    (dbg "~%:: debug task queue: ~A"
+         (mapcar #'(lambda (task)
+                     (cons (task-image-up-path task)
+                           (task-image-down-path task)))
+                 *task-queue*))))
 (in-package #:cl-autogui)
 
 (defparameter *task-queue-lock*     (bt:make-lock "task-queue-lock"))
@@ -241,45 +279,7 @@
               (save-png width height path img :grayscale)
               img)))))
 
-(in-package #:cl-autogui)
-
-(defmacro with-display (host (display screen root-window) &body body)
-  `(let* ((,display (xlib:open-display ,host))
-          (,screen (first (xlib:display-roots ,display)))
-          (,root-window (xlib:screen-root ,screen)))
-     (unwind-protect (progn ,@body)
-       (xlib:close-display ,display))))
-
-(defmacro with-default-display ((display &key (force nil)) &body body)
-  `(let ((,display (open-default-display)))
-     (unwind-protect
-          (unwind-protect
-               ,@body
-            (when ,force
-              (display-force-output ,display)))
-       (close-display ,display))))
-
-(defmacro with-default-display-force ((display) &body body)
-  `(with-default-display (,display :force t) ,@body))
-
-(defmacro with-default-screen ((screen) &body body)
-  (let ((display (gensym)))
-    `(with-default-display (,display)
-       (let ((,screen (display-default-screen ,display)))
-         ,@body))))
-
-(defmacro with-default-window ((window) &body body)
-  (let ((screen (gensym)))
-    `(with-default-screen (,screen)
-       (let ((,window (screen-root ,screen)))
-         ,@body))))
 (in-package  #:cl-autogui)
-
-(defun x-size ()
-  (with-default-screen (s)
-    (values
-     (screen-width s)
-     (screen-height s))))
 
 (defun x-move (x y)
   (if (and (integerp x) (integerp y))
@@ -339,16 +339,7 @@
   (def x-key-up nil)
   (def x-press '(t nil)))
 
-  (in-package  #:cl-autogui)
-
-  ;; (defun perform-mouse-action (press? button &key x y)
-  ;;   (and x y (x-move x y))
-  ;;   (with-default-display-force (d)
-  ;;     (xlib/xtest:fake-button-event d button press?)))
-
-  ;; (defun perform-key-action (press? keycode) ; use xev to get keycode
-  ;;   (with-default-display-force (d)
-  ;;     (xlib/xtest:fake-key-event d keycode press?)))
+(in-package  #:cl-autogui)
 
 (defun perform-mouse-action (press? button &key x y)
   (and x y (x-move x y))
@@ -359,15 +350,15 @@
   (with-default-display-force (d)
     (xlib/xtest:fake-key-event d keycode press?)))
 
-  ;; (block perform-key-action-test
-  ;;   (perform-key-action t 116)
-  ;;   (sleep .1)
-  ;;   (perform-key-action nil 116))
+;; (block perform-key-action-test
+;;   (perform-key-action t 116)
+;;   (sleep .1)
+;;   (perform-key-action nil 116))
 
-  ;; (block perform-mouse-action-test
-  ;;   (perform-mouse-action t *mouse-left* :x 100 :y 100)
-  ;;   (sleep .1)
-  ;;   (perform-mouse-action nil *mouse-left* :x 100 :y 100))
+;; (block perform-mouse-action-test
+;;   (perform-mouse-action t *mouse-left* :x 100 :y 100)
+;;   (sleep .1)
+;;   (perform-mouse-action nil *mouse-left* :x 100 :y 100))
 
 (defun pgdn ()
   (sleep 1)
@@ -504,15 +495,22 @@
   fn)
 
 (let ((prev-img))
-  (defun producer (cv-pc task-queue-lock task-queue outlock)
+  (defun producer ()
+    (dbg "~%~A started" (bt:thread-name (bt:current-thread)))
     (loop
        ;; Если предыдущего изображения нет - сделаем его
        (unless prev-img
+         (dbg "~%~A make first screenshot"
+              (bt:thread-name (bt:current-thread)))
          (setf prev-img (save-screenshot (take-screenshot))))
        ;; Прокрутим экран вниз
        (pgdn)
+       (dbg "~%~A page down"
+            (bt:thread-name (bt:current-thread)))
        ;; Сделаем следующее изображение
        (let ((next-img (save-screenshot (take-screenshot))))
+         (dbg "~%~A make next screenshot"
+              (bt:thread-name (bt:current-thread)))
          ;; Сформируем новый таск
          (destructuring-bind (height-down width-down)
              (array-dimensions (cdr next-img))
@@ -528,16 +526,23 @@
                                       :image-down-path (car next-img)
                                       :fn #'analize-img-pair)))
              ;; Запишем его в очередь
-             (append-queue task-queue-lock task-queue new-task)
+             (bt:with-lock-held (*task-queue-lock*)
+                (setf *task-queue*
+                      (append *task-queue*
+                              (list new-task))))
+             (dbg "~%~A make task in taskqueue"
+                  (bt:thread-name (bt:current-thread)))
+             (dbg-task-queue)
              ;; Сделаем последнее изображение новым предыдущим
              (setf prev-img next-img)
              ;; Уведомим потребителей об обновлении очереди задач
-             (bt:condition-notify cv-pc))))
+             (bt:condition-notify *cv-pc*)
+             (dbg "~%~A notyfyed"
+                  (bt:thread-name (bt:current-thread)))
+             )))
        ;; Теперь можно поспать, чтобы не быть слишком быстрым
-       (sleep 5))))
+       (sleep 1))))
 (in-package #:cl-autogui)
-
-(defparameter *task-cnt* 0)
 
 (in-package #:cl-autogui)
 
@@ -569,7 +574,7 @@
                       (bt:all-threads))
               :test #'equal)))
 
-(defun stop-report-and-kill-producer (outlock msg)
+(defun stop-report-and-kill-producer (msg)
   (dbg "~% ~A reported: ~A; stop"
        (bt:thread-name (bt:current-thread))
        msg)
@@ -577,7 +582,7 @@
     (when producer
       (bt:destroy-thread producer))))
 
-(defun kill-all-consumers (outlock msg)
+(defun kill-all-consumers (msg)
   (dbg "~% ~A reported: ~A; stop all threads"
        (bt:thread-name (bt:current-thread))
        msg)
@@ -870,21 +875,17 @@
 ;;           (array-dimensions app-arr)
 ;;         (save-png width height "~/Pictures/area.png" app-arr :grayscale)))))
 
-(defun create-roll (path own-cv outlock results-queue-lock)
+(defun create-roll (path own-cv results-queue-lock)
   (loop
      (bt:with-lock-held (results-queue-lock)
        ;; wait for access
        (bt:condition-wait own-cv results-queue-lock)
-       (bt:with-lock-held (outlock)
-         (dbg "~% create roll is woke"))
+       (dbg "~% create roll is woke")
        ;; если все сработает верно, то управление в эту строку
        ;; попадет только 1 раз, поэтому не будет попытки удалить несуществующие потоки
-       (stop-report-and-kill-producer
-        outlock "stop-report-andd-kill-producer: last image!")
-       (kill-all-consumers
-        outlock "kill-all-consumers: last image!")
-       (bt:with-lock-held (outlock)
-         (dbg "~% all threads are killed"))
+       (stop-report-and-kill-producer "stop-report-andd-kill-producer: last image!")
+       (kill-all-consumers "kill-all-consumers: last image!")
+       (dbg "~% all threads are killed")
        ;; take first img-pair
        (let* ((cur-result (pop *results-queue*))
               (cur-y-point (result-y-point cur-result))
@@ -912,9 +913,8 @@
                ;; а не от 1 до 668. Так мы избежим погрешности в 1 пиксель
                (let* ((difference (- (- height-up 1) cur-y-point))
                       (new-y-point (- height-roll difference)))
-                 (bt:with-lock-held (outlock)
-                   (dbg "~% do: i ~A; height-roll ~A cur-y-point ~A new-y-point ~A"
-                           i height-roll cur-y-point new-y-point ))
+                 (dbg "~% do: i ~A; height-roll ~A cur-y-point ~A new-y-point ~A"
+                      i height-roll cur-y-point new-y-point)
                  (setf roll (append-image roll cur-image-down new-y-point))))))
          ;; save roll
          (destructuring-bind (height-roll width-roll &optional colors-roll)
@@ -924,8 +924,7 @@
                  (save-png width-roll height-roll path roll)
                  (return-from create-roll t))
                (progn
-                 (bt:with-lock-held (outlock)
-                   (dbg "~% all the end!"))
+                 (dbg "~% all the end!")
                  (save-png width-roll height-roll path roll :grayscale)
                  (return-from create-roll t))))))))
 
@@ -938,74 +937,72 @@
   y-point
   image-up image-down)
 
-(defun consumer (cv-pc task-queue-lock task-queue cv-roll outlock)
-  (unless (bt:thread-alive-p (find-thread-by-name "producer-thread"))
+(defun consumer ()
+  (unless (bt:thread-alive-p (find-thread-by-name "producer"))
     (bt:destroy-thread (bt:current-thread)))
-  (dbg "~% ~A started" (bt:thread-name (bt:current-thread)))
+  (dbg "~%~A started" (bt:thread-name (bt:current-thread)))
   (loop (let ((cur-task))
-          (bt:with-lock-held (task-queue-lock)
-            (bt:condition-wait cv-pc task-queue-lock)
+          ;; pop task to cur-task
+          (bt:with-lock-held (*task-queue-lock*)
+            (bt:condition-wait *cv-pc* *task-queue-lock*)
             (setf cur-task (pop *task-queue*)))
-          (let ((cur-task (pop-queue task-queue-lock task-queue)))
-            (if (null cur-task)
-                ;; if no task then skip step
-                (dbg "~% ~A reported: no task in queue; skip"
-                     (bt:thread-name (bt:current-thread)))
-                ;; else
-                (progn
-                  (dbg "~% ~A woke up for ~A; ~A tasks left, ~A processed"
-                       (bt:thread-name (bt:current-thread))
-                       (cons (task-image-up-path cur-task)
-                             (task-image-down-path cur-task))
-                       (length *task-queue*)
-                       *task-cnt*)
-                  ;; analize task and push best results to the queue
-                  ;; (let* ((cur-results (funcall (task-fn cur-task)
-                  ;;                              (task-image-up cur-task)
-                  ;;                              (task-image-down cur-task)
-                  ;;                              (task-y-points cur-task))))
-                  ;;   ;; find best results after analize
-                  ;;   (multiple-value-bind (best-res last?)
-                  ;;       (find-best cur-results)
-                  ;;     (let ((new-result (make-result
-                  ;;                        :white (cdr (car best-res))
-                  ;;                        :black (car (car best-res))
-                  ;;                        :y-point (cdr best-res)
-                  ;;                        :image-up (task-image-up cur-task)
-                  ;;                        :image-down (task-image-down cur-task))))
-                  ;;       (bt:with-lock-held (task-queue-lock)
-                  ;;         (setf *results-queue* (append *results-queue* (list new-result))))
-                  ;;       (bt:with-lock-held (outlock)
-                  ;;         (dbg " ~% thread ~A ; best-res ~A for ~A results ~A;
-                  ;;                     ~A tasks left"
-                  ;;                 (bt:thread-name (bt:current-thread)) best-res
-                  ;;                 (cons (task-image-up-path cur-task)
-                  ;;                       (task-image-down-path cur-task))
-                  ;;                 (length *results-queue*) (length *task-queue*))))
-                  ;;     ;; was it last image?
-                  ;;     (if last?
-                  ;;         ;; yes
-                  ;;         ;; kill all threads
-                  ;;         (progn
-                  ;;           (bt:with-lock-held (outlock)
-                  ;;             (dbg " ~% thread ~A: last image!"
-                  ;;                     (bt:thread-name (bt:current-thread))))
-                  ;;           (bt:with-lock-held (task-queue-lock)
-                  ;;             (bt:condition-notify cv-roll)))
-                  ;;         ;; increment thread-local task-cnt
-                  ;;         )))
-                  ))))))
+          (if (null cur-task)
+              ;; if no task then skip step
+              (dbg "~%~A reported: no task in queue; skip"
+                   (bt:thread-name (bt:current-thread)))
+              ;; else
+              (progn
+                (dbg "~%~A woke up for ~A; ~A tasks left"
+                     (bt:thread-name (bt:current-thread))
+                     (cons (task-image-up-path cur-task)
+                           (task-image-down-path cur-task))
+                     (length *task-queue*))
+                ;; analize task and push best results to the queue
+                ;; (let* ((cur-results (funcall (task-fn cur-task)
+                ;;                              (task-image-up cur-task)
+                ;;                              (task-image-down cur-task)
+                ;;                              (task-y-points cur-task))))
+                ;;   ;; find best results after analize
+                ;;   (multiple-value-bind (best-res last?)
+                ;;       (find-best cur-results)
+                ;;     (let ((new-result (make-result
+                ;;                        :white (cdr (car best-res))
+                ;;                        :black (car (car best-res))
+                ;;                        :y-point (cdr best-res)
+                ;;                        :image-up (task-image-up cur-task)
+                ;;                        :image-down (task-image-down cur-task))))
+                ;;       (bt:with-lock-held (task-queue-lock)
+                ;;         (setf *results-queue* (append *results-queue* (list new-result))))
+                ;;       (bt:with-lock-held (outlock)
+                ;;         (dbg " ~% thread ~A ; best-res ~A for ~A results ~A;
+                ;;                     ~A tasks left"
+                ;;                 (bt:thread-name (bt:current-thread)) best-res
+                ;;                 (cons (task-image-up-path cur-task)
+                ;;                       (task-image-down-path cur-task))
+                ;;                 (length *results-queue*) (length *task-queue*))))
+                ;;     ;; was it last image?
+                ;;     (if last?
+                ;;         ;; yes
+                ;;         ;; kill all threads
+                ;;         (progn
+                ;;           (bt:with-lock-held (outlock)
+                ;;             (dbg " ~% thread ~A: last image!"
+                ;;                     (bt:thread-name (bt:current-thread))))
+                ;;           (bt:with-lock-held (*task-queue-lock*)
+                ;;             (bt:condition-notify *cv-roll*)))
+                ;;         )))
+                )))))
 
 (defun create-threads (num-of-cores)
+  (dbg "~%thread 'producer' created")
   (bt:make-thread
    (lambda ()
-     (producer *cv-pc* *task-queue-lock* *task-queue* *outlock*))
-   :name "producer-thread")
+     (producer))
+   :name "producer")
   ;; Временно выключил, чтобы сократить поверхность отладки
   ;; (bt:make-thread (lambda ()
   ;;                   (create-roll "~/Pictures/roll.png"
   ;;                                cv-roll
-  ;;                                outlock
   ;;                                results-queue-lock))
   ;;                 :name "roll-thread"
   ;;                 :initial-bindings
@@ -1016,8 +1013,7 @@
          (dbg "~%thread 'consumer~A' created" th-idx)
          (bt:make-thread
           (lambda ()
-            (consumer *cv-pc* *task-queue-lock* *task-queue*
-                      *cv-roll* *outlock*))
+            (consumer))
           :name (format nil "consumer-~A" th-idx)
           :initial-bindings
           `((*standard-output* . ,*standard-output*))))))
@@ -1026,13 +1022,7 @@
 (block producer-consumers-test
   (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
   (sleep 8)
-  (defparameter *clear*
-    (multiple-value-bind (thread-pool task-queue-lock outlock)
-        (create-threads 3)
-      (declare (ignore thread-pool task-queue-lock outlock))
-      (when nil
-        (print
-         (bt:all-threads))))))
+  (create-threads 3))
 
 ;; (defun producer-test ()
 ;;   (bt:make-thread (lambda ()
@@ -1041,8 +1031,7 @@
 ;;   (loop
 ;;      (if (eql (length *task-queue*) 5)
 ;;          (progn
-;;            (stop-report-and-kill-producer
-;;             outlock "stop-report-andd-kill-producer: last image!")
+;;            (stop-report-and-kill-producer "stop-report-andd-kill-producer: last image!")
 ;;            (return-from producer-test t)))))
 
 
