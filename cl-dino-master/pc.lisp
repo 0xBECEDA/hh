@@ -31,14 +31,53 @@
            #:x-find-color))
 (in-package  #:cl-autogui)
 
+(in-package #:cl-autogui)
+
+(defmacro with-display (host (display screen root-window) &body body)
+  `(let* ((,display (xlib:open-display ,host))
+          (,screen (first (xlib:display-roots ,display)))
+          (,root-window (xlib:screen-root ,screen)))
+     (unwind-protect (progn ,@body)
+       (xlib:close-display ,display))))
+
+(defmacro with-default-display ((display &key (force nil)) &body body)
+  `(let ((,display (open-default-display)))
+     (unwind-protect
+          (unwind-protect
+               ,@body
+            (when ,force
+              (display-force-output ,display)))
+       (close-display ,display))))
+
+(defmacro with-default-display-force ((display) &body body)
+  `(with-default-display (,display :force t) ,@body))
+
+(defmacro with-default-screen ((screen) &body body)
+  (let ((display (gensym)))
+    `(with-default-display (,display)
+       (let ((,screen (display-default-screen ,display)))
+         ,@body))))
+
+(defmacro with-default-window ((window) &body body)
+  (let ((screen (gensym)))
+    `(with-default-screen (,screen)
+       (let ((,window (screen-root ,screen)))
+         ,@body))))
+
+(defun x-size ()
+  (with-default-screen (s)
+    (values
+     (screen-width s)
+     (screen-height s))))
+
 (defparameter *langs* "rus+eng")
-(defparameter *default-width* 1295)
-(defparameter *default-height* 668)
+(defparameter *default-width*  (multiple-value-bind (x y) (x-size) x))
+(defparameter *default-height* (multiple-value-bind (x y) (x-size) y))
 (defparameter *teaser-width* 690)
-(defparameter *snap-width* 755)
-(defparameter *snap-height* 668)
 (defparameter *snap-x* 100)
 (defparameter *snap-y* 100)
+(defparameter *snap-width* (- *default-width* *snap-x*))
+(defparameter *snap-height* (- *default-height* *snap-y*))
 (defparameter *default-x* 60)
 (defparameter *default-y* 37)
 (defparameter *mouse-left* 1)
@@ -49,17 +88,6 @@
 
 (defparameter *browser-path*  "/usr/bin/firefox")
 (in-package #:cl-autogui)
-(in-package  #:cl-autogui)
-
-(defstruct append-results
-  append-image)
-  (in-package  #:cl-autogui)
-
-  (defstruct result
-    black
-    white
-    y-point
-    image-up image-down)
 (defstruct task
   (y-points '())
   (image-up nil)
@@ -67,27 +95,6 @@
   (image-up-path nil)
   (image-down-path nil)
   fn)
-(in-package  #:cl-autogui)
-
-(defun open-browser (browser-path url)
-  (let ((proc (sb-ext:run-program
-               `,browser-path
-               `(,url)
-               :input :stream :output :stream)))
-    (if proc
-        (with-open-stream (input (sb-ext:process-input proc))
-          (with-open-stream (output (sb-ext:process-output proc))
-            (do ((a-line (read-line output nil 'eof)
-                         (read-line output nil 'eof)))
-                ((eql a-line 'eof))
-              (format t "~A" a-line)
-              (force-output output))))
-    (format t "~% open-browser: didn't run firefox"))))
-
-;; (block open-browser-test
-;;  (open-browser "/usr/bin/firefox" *hh-teaser-url*))
-
-
 (in-package  #:cl-autogui)
 
 (defun append-image (image-up image-down y-point)
@@ -102,7 +109,7 @@
            (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
       (destructuring-bind (height-new width-new &optional colors-new)
           (array-dimensions image-new)
-        (format t "~%  append-image: height-new ~A width-new ~A y-point ~A"
+        (dbg "~%  append-image: height-new ~A width-new ~A y-point ~A"
                 height-new width-new y-point))
       ;; макрос для прохода по блоку точек
       (macrolet ((cycle ((py px height width &optional &body newline)
@@ -160,115 +167,36 @@
 ;;         (array-dimensions array)
 ;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
 
-(in-package  #:cl-autogui)
-
-(defun make-bit-image (image-data)
-  (destructuring-bind (height width &optional colors)
-      (array-dimensions image-data)
-    ;; функция может работать только с бинарными изобажениями
-    (assert (null colors))
-    (let* ((new-width (+ (logior width 7) 1))
-           (bit-array (make-array (list height new-width)
-                                  :element-type 'bit)))
-      (do ((qy 0 (incf qy)))
-          ((= qy height))
-        (do ((qx 0 (incf qx)))
-            ((= qx width))
-          ;; если цвет пикселя не белый, считаем,
-          ;; что это не фон и заносим в битовый массив 1
-          (unless (equal (aref image-data qy qx) 255)
-            (setf (bit bit-array qy qx) 1))))
-      bit-array)))
-
-;; (block make-bit-image
-;;     (time
-;;      (let* ((bit-arr1
-;;              (make-bit-image (load-png "~/Pictures/test-bin.png"))))
-;;        (format t "~% ~A" bit-arr1))))
-(in-package  #:cl-autogui)
-
-(defun append-xor (image-up image-down y-point)
-  (destructuring-bind (height-up width-up &optional colors-up)
-      (array-dimensions image-up)
-    (destructuring-bind (height-down width-down &optional colors-down)
-        (array-dimensions image-down)
-      (assert (equal width-up width-down))
-      (assert (equal colors-up colors-down))
-      (let* ((new-height (+ height-down y-point))
-             (new-dims (if (null colors-down)
-                           (list new-height width-down)
-                           (list new-height width-down colors-down)))
-             (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
-        ;; макрос для прохода по блоку точек
-        (macrolet ((cycle ((py px height width &optional &body newline)
-                           &body body)
-                     `(do ((qy ,py (incf qy)))
-                          ((= qy ,height))
-                        (do ((qx ,px (incf qx)))
-                            ((= qx ,width))
-                          ,@body)
-                        ,@newline)))
-          ;; копируем первую картинку в новый массив
-          ;; от ее начала до ее конца (NB: тут отличие от append-image)
-          (if (null colors-up)
-              (cycle (0 0 height-up width-up)
-                     (setf (aref image-new qy qx)
-                           (aref image-up qy qx)))
-              ;; else
-              (cycle (0 0 height-up width-up)
-                     (do ((qz 0 (incf qz)))
-                         ((= qz colors-up))
-                       (setf (aref image-new qy qx qz)
-                             (aref image-up qy qx qz)))))
-          ;; xor-им вторую картинку в новый массив
-          ;; от ее начала до конца
-          (if (null colors-down)
-              (let ((new-y y-point))
-                (cycle (0 0 height-down width-down (incf new-y))
-                       (setf (aref image-new new-y qx)
-                             (logxor (aref image-new new-y qx)
-                                     (aref image-down qy qx)))))
-              ;; else
-              (let ((new-y y-point))
-                (cycle (0 0 height-down width-down (incf new-y))
-                       ;; ксорим 3 цвета
-                       (do ((rz 0 (incf rz)))
-                           ((= rz colors-down))
-                         (setf (aref image-new new-y qx rz)
-                               (logxor (aref image-new new-y qx rz)
-                                       (aref image-down qy qx rz))))
-                       ;; копируем альфа-канал
-                       (setf (aref image-new new-y qx 3)
-                             (aref image-down qy qx 3))
-                       ))))
-        image-new))))
-
-;; (time
-;;  (block test-append-xor-fullcolor
-;;    (let* ((arr1 (x-snapshot :x 0 :y 0 :width 500 :height 300))
-;;           (arr2 (x-snapshot :x 0 :y 100 :width 500 :height 300))
-;;           (result (append-xor arr1 arr2 200)))
-;;      (destructuring-bind (height width  &rest rest)
-;;          (array-dimensions result)
-;;        (save-png width height "~/Pictures/result.png" result)))))
-
-;; (block test-append-xor-grayscale
-;;   (let* ((arr1 (binarization (x-snapshot :x 0 :y 0 :width 755 :height 300)))
-;;          (arr2 (binarization (x-snapshot :x 0 :y 100 :width 755 :height 300)))
-;;          (array (append-xor arr1 arr2 200)))
-;;     (destructuring-bind (height width  &rest rest)
-;;         (array-dimensions array)
-;;       (save-png width height "~/Pictures/result.png" array :grayscale))))
+(in-package #:cl-autogui)
 
 (in-package #:cl-autogui)
 
 (defparameter *task-queue* nil)
 (defparameter *results-queue* nil)
-
-
-
 (in-package #:cl-autogui)
 
+(defmacro dbg (msg &rest params)
+  `(bt:with-lock-held (*outlock*)
+     (format t ,msg ,@params)
+     (finish-output)))
+
+(defmacro dbg-task-queue ()
+  `(bt:with-lock-held
+    (*task-queue-lock*)
+    (dbg "~%:: debug task queue: ~A"
+         (mapcar #'(lambda (task)
+                     (cons (task-image-up-path task)
+                           (task-image-down-path task)))
+                 *task-queue*))))
+(in-package #:cl-autogui)
+
+(defparameter *task-queue-lock*     (bt:make-lock "task-queue-lock"))
+(defparameter *outlock*             (bt:make-lock "output-lock"))
+(defparameter *results-queue-lock*  (bt:make-lock "results-queue-lock"))
+(in-package #:cl-autogui)
+
+(defparameter *cv-pc*    (bt:make-condition-variable :name "cv-pc"))
+(defparameter *cv-roll*  (bt:make-condition-variable :name "cv-roll"))
 (in-package #:cl-autogui)
 
 (in-package #:cl-autogui)
@@ -321,7 +249,7 @@
                      (t (error 'unk-png-color-type :color color))))
          (result ;; меняем размерности X и Y местами
           (make-array dims :element-type '(unsigned-byte 8))))
-    ;; (format t "~% new-arr ~A "(array-dimensions result))
+    ;; (dbg "~% new-arr ~A "(array-dimensions result))
     ;; ширина, высота, цвет => высота, ширина, цвет
     (macrolet ((cycle (&body body)
                  `(do ((y 0 (incf y)))
@@ -356,45 +284,7 @@
                     (save-png width height path img :grayscale)
                     img)))))))
 
-(in-package #:cl-autogui)
-
-(defmacro with-display (host (display screen root-window) &body body)
-  `(let* ((,display (xlib:open-display ,host))
-          (,screen (first (xlib:display-roots ,display)))
-          (,root-window (xlib:screen-root ,screen)))
-     (unwind-protect (progn ,@body)
-       (xlib:close-display ,display))))
-
-(defmacro with-default-display ((display &key (force nil)) &body body)
-  `(let ((,display (open-default-display)))
-     (unwind-protect
-          (unwind-protect
-               ,@body
-            (when ,force
-              (display-force-output ,display)))
-       (close-display ,display))))
-
-(defmacro with-default-display-force ((display) &body body)
-  `(with-default-display (,display :force t) ,@body))
-
-(defmacro with-default-screen ((screen) &body body)
-  (let ((display (gensym)))
-    `(with-default-display (,display)
-       (let ((,screen (display-default-screen ,display)))
-         ,@body))))
-
-(defmacro with-default-window ((window) &body body)
-  (let ((screen (gensym)))
-    `(with-default-screen (,screen)
-       (let ((,window (screen-root ,screen)))
-         ,@body))))
 (in-package  #:cl-autogui)
-
-(defun x-size ()
-  (with-default-screen (s)
-    (values
-     (screen-width s)
-     (screen-height s))))
 
 (defun x-move (x y)
   (if (and (integerp x) (integerp y))
@@ -454,16 +344,7 @@
   (def x-key-up nil)
   (def x-press '(t nil)))
 
-  (in-package  #:cl-autogui)
-
-  ;; (defun perform-mouse-action (press? button &key x y)
-  ;;   (and x y (x-move x y))
-  ;;   (with-default-display-force (d)
-  ;;     (xtest:fake-button-event d button press?)))
-
-  ;; (defun perform-key-action (press? keycode) ; use xev to get keycode
-  ;;   (with-default-display-force (d)
-  ;;     (xtest:fake-key-event d keycode press?)))
+(in-package  #:cl-autogui)
 
 (defun perform-mouse-action (press? button &key x y)
   (and x y (x-move x y))
@@ -474,21 +355,22 @@
   (with-default-display-force (d)
     (xtest:fake-key-event d keycode press?)))
 
-  ;; (block perform-key-action-test
-  ;;   (perform-key-action t 116)
-  ;;   (sleep .1)
-  ;;   (perform-key-action nil 116))
+;; (block perform-key-action-test
+;;   (perform-key-action t 116)
+;;   (sleep .1)
+;;   (perform-key-action nil 116))
 
-  ;; (block perform-mouse-action-test
-  ;;   (perform-mouse-action t *mouse-left* :x 100 :y 100)
-  ;;   (sleep .1)
-  ;;   (perform-mouse-action nil *mouse-left* :x 100 :y 100))
+;; (block perform-mouse-action-test
+;;   (perform-mouse-action t *mouse-left* :x 100 :y 100)
+;;   (sleep .1)
+;;   (perform-mouse-action nil *mouse-left* :x 100 :y 100))
 
 (defun pgdn ()
+  (sleep 1)
   (perform-key-action t 117)
-  (sleep .1)
+  (sleep 0.1)
   (perform-key-action nil 117)
-  (sleep .5))
+  (sleep 1))
 
 (in-package  #:cl-autogui)
 
@@ -584,7 +466,7 @@
     result))
 
 ;; (in-package  #:cl-autogui)
-;;
+;; 
 ;; (block save-load-binarixation-test
 ;;   (x-snapshot :x 440 :width  *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -594,7 +476,7 @@
 ;;         (array-dimensions image)
 ;;       (save-png dw dh "~/Pictures/test-bin.png"
 ;;                image  :grayscale))))
-;;
+;; 
 ;; (block save-load-full-color-test
 ;;   (x-snapshot :x 440 :width *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -620,15 +502,22 @@
   fn)
 
 (let ((prev-img))
-  (defun producer (cv task-queue-lock)
+  (defun producer ()
+    (dbg "~%~A started" (bt:thread-name (bt:current-thread)))
     (loop
        ;; Если предыдущего изображения нет - сделаем его
        (unless prev-img
+         (dbg "~%~A make first screenshot"
+              (bt:thread-name (bt:current-thread)))
          (setf prev-img (save-screenshot (take-screenshot))))
        ;; Прокрутим экран вниз
        (pgdn)
+       (dbg "~%~A page down"
+            (bt:thread-name (bt:current-thread)))
        ;; Сделаем следующее изображение
        (let ((next-img (save-screenshot (take-screenshot))))
+         (dbg "~%~A make next screenshot"
+              (bt:thread-name (bt:current-thread)))
          ;; Сформируем новый таск
          (destructuring-bind (height-down width-down &optional colors)
              (array-dimensions (cdr next-img))
@@ -644,22 +533,45 @@
                                       :image-down-path (car next-img)
                                       :fn #'analize-img-pair)))
              ;; Запишем его в очередь
-             (bt:with-lock-held (task-queue-lock)
-               (setf *task-queue*
-                     (append *task-queue*
-                             (list new-task))))
+             (bt:with-lock-held (*task-queue-lock*)
+                (setf *task-queue*
+                      (append *task-queue*
+                              (list new-task))))
+             (dbg "~%~A make task in taskqueue"
+                  (bt:thread-name (bt:current-thread)))
+             (dbg-task-queue)
              ;; Сделаем последнее изображение новым предыдущим
              (setf prev-img next-img)
              ;; Уведомим потребителей об обновлении очереди задач
-             (bt:condition-notify cv))))
+             (bt:condition-notify *cv-pc*)
+             (dbg "~%~A notyfyed"
+                  (bt:thread-name (bt:current-thread)))
+             )))
        ;; Теперь можно поспать, чтобы не быть слишком быстрым
-       (sleep 5))))
+       (sleep 1))))
 (in-package #:cl-autogui)
 
-(defparameter *task-cnt* 0)
-(defparameter *task-limit* 10)
-
 (in-package #:cl-autogui)
+
+(in-package  #:cl-autogui)
+
+(defun open-browser (browser-path url)
+  (let ((proc (sb-ext:run-program
+               `,browser-path
+               `(,url)
+               :input :stream :output :stream)))
+    (if proc
+        (with-open-stream (input (sb-ext:process-input proc))
+          (with-open-stream (output (sb-ext:process-output proc))
+            (do ((a-line (read-line output nil 'eof)
+                         (read-line output nil 'eof)))
+                ((eql a-line 'eof))
+              (dbg "~A" a-line)
+              (force-output output))))
+    (dbg "~% open-browser: didn't run firefox"))))
+
+;; (block open-browser-test
+;;  (open-browser "/usr/bin/firefox" *hh-teaser-url*))
 
 (defun find-thread-by-name (thread-name)
   (cdr (assoc thread-name
@@ -669,22 +581,18 @@
                       (bt:all-threads))
               :test #'equal)))
 
-(defun stop-report-and-kill-producer (outlock msg)
-  (bt:with-lock-held (outlock)
-    (format t "~% ~A reported: ~A; stop"
-            (bt:thread-name (bt:current-thread))
-            msg)
-    (finish-output))
+(defun stop-report-and-kill-producer (msg)
+  (dbg "~% ~A reported: ~A; stop"
+       (bt:thread-name (bt:current-thread))
+       msg)
   (let ((producer (find-thread-by-name "producer-thread")))
     (when producer
       (bt:destroy-thread producer))))
 
-(defun kill-all-consumers (outlock msg)
-  (bt:with-lock-held (outlock)
-    (format t "~% ~A reported: ~A; stop all threads"
-            (bt:thread-name (bt:current-thread))
-            msg)
-    (finish-output))
+(defun kill-all-consumers (msg)
+  (dbg "~% ~A reported: ~A; stop all threads"
+       (bt:thread-name (bt:current-thread))
+       msg)
   ;; KILL ALL THREADS!
   (mapcar #'(lambda (pair)
               (bt:destroy-thread (cadr pair)))
@@ -712,7 +620,7 @@
         nil
         (destructuring-bind (height width &optional colors)
             (array-dimensions xored-image)
-          ;;(format t "~% y-point ~A height ~A" y-point height)
+          (dbg "~% y-point ~A height ~A" y-point height)
           (let* ((intesect-height height) ;; высота пересечения
                  (white 0)
                  (black 0)
@@ -720,7 +628,7 @@
                  (pix-amount (* intesect-height width)))
             ;; высчитываем максимально допустимое количество белых пикселей
             (setf border (* (float (/ border 100)) pix-amount))
-            ;;(format t "~% intesect-height ~A " intesect-height)
+            (dbg "~% intesect-height ~A " intesect-height)
             ;; если картинки full-color
             (if colors
                 (do ((qy y-point (incf qy)))
@@ -752,7 +660,7 @@
             (setf black ( - pix-amount white))
             (let ((result (cons (* (float (/ black pix-amount)) 100)
                                 (* (float (/ white pix-amount)) 100))))
-              ;;(format t " ~% black ~A y-point ~A pixamount ~A" black y-point pix-amount)
+              ;;(dbg " ~% black ~A y-point ~A pixamount ~A" black y-point pix-amount)
               ;; возвращаем кол-во черных пикселей в процентном выражении
               result)))))
 
@@ -766,9 +674,9 @@
 ;;       (setf amount (analysis (xor-area arr1 arr2 i) i))
 ;;       (if (car amount)
 ;;           (setf res (cons (cons amount i) res))))
-;;     (format t "~% res ~A" res)
+;;     (dbg "~% res ~A" res)
 ;;     (setf res (find-best res))
-;;     (format t "~% best-res ~A" res)
+;;     (dbg "~% best-res ~A" res)
 ;;     (let ((app-arr (append-image (load-png "~/Pictures/img-2")
 ;;                                  (load-png "~/Pictures/img-3") (cdr res))))
 ;;       (destructuring-bind (height width  &rest rest)
@@ -782,7 +690,7 @@
       (array-dimensions image-up)
     (destructuring-bind (height-down width-down &optional colors-down)
         (array-dimensions image-down)
-      ;; (format t "~% height-up ~A width-up ~A height-down ~A width-down ~A y ~A"
+      ;; (dbg "~% height-up ~A width-up ~A height-down ~A width-down ~A y ~A"
       ;;         height-up width-up height-down width-down y-point)
       (assert (equal width-up width-down))
       (assert (equal colors-up colors-down))
@@ -795,7 +703,7 @@
                                (list intersect-area width-down)
                                (list intersect-area width-down colors-down)))
                  (image-new (make-array new-dims :element-type '(unsigned-byte 8))))
-            ;;(format t "~% xor: intersect-area ~A" intersect-area)
+            ;;(dbg "~% xor: intersect-area ~A" intersect-area)
             ;; макрос для прохода по блоку точек
             (macrolet ((cycle ((py px height width &optional &body newline)
                                &body body)
@@ -878,7 +786,7 @@
 ;;     (time
 ;;      (let* ((bit-arr1
 ;;              (make-bit-image (load-png "~/Pictures/test-bin.png"))))
-;;        (format t "~% ~A" bit-arr1))))
+;;        (dbg "~% ~A" bit-arr1))))
 
 (defun analize-img-pair (image-up image-down y-points)
     (print "ANALIZE-IMG-PAIR")
@@ -965,30 +873,26 @@
 ;;       (setf amount (analysis (xor-area arr1 arr2 i) i))
 ;;       (if (car amount)
 ;;           (setf res (cons (cons amount i) res))))
-;;     (format t "~% res ~A" res)
+;;     (dbg "~% res ~A" res)
 ;;     (setf res (find-best res))
-;;     (format t "~% best-res ~A" res)
+;;     (dbg "~% best-res ~A" res)
 ;;     (let ((app-arr (append-image (load-png "~/Pictures/img-2")
 ;;                                  (load-png "~/Pictures/img-3") (cdr res))))
 ;;       (destructuring-bind (height width  &rest rest)
 ;;           (array-dimensions app-arr)
 ;;         (save-png width height "~/Pictures/area.png" app-arr :grayscale)))))
 
-(defun create-roll (path own-cv outlock results-queue-lock)
+(defun create-roll (path own-cv results-queue-lock)
   (loop
      (bt:with-lock-held (results-queue-lock)
        ;; wait for access
        (bt:condition-wait own-cv results-queue-lock)
-       (bt:with-lock-held (outlock)
-         (format t "~% create roll is woke"))
+       (dbg "~% create roll is woke")
        ;; если все сработает верно, то управление в эту строку
        ;; попадет только 1 раз, поэтому не будет попытки удалить несуществующие потоки
-       (stop-report-and-kill-producer
-        outlock "stop-report-andd-kill-producer: last image!")
-       (kill-all-consumers
-        outlock "kill-all-consumers: last image!")
-       (bt:with-lock-held (outlock)
-         (format t "~% all threads are killed"))
+       (stop-report-and-kill-producer "stop-report-andd-kill-producer: last image!")
+       (kill-all-consumers "kill-all-consumers: last image!")
+       (dbg "~% all threads are killed")
        ;; take first img-pair
        (let* ((cur-result (pop *results-queue*))
               (cur-y-point (result-y-point cur-result))
@@ -1016,9 +920,8 @@
                ;; а не от 1 до 668. Так мы избежим погрешности в 1 пиксель
                (let* ((difference (- (- height-up 1) cur-y-point))
                       (new-y-point (- height-roll difference)))
-                 (bt:with-lock-held (outlock)
-                   (format t "~% do: i ~A; height-roll ~A cur-y-point ~A new-y-point ~A"
-                           i height-roll cur-y-point new-y-point ))
+                 (dbg "~% do: i ~A; height-roll ~A cur-y-point ~A new-y-point ~A"
+                      i height-roll cur-y-point new-y-point)
                  (setf roll (append-image roll cur-image-down new-y-point))))))
          ;; save roll
          (destructuring-bind (height-roll width-roll &optional colors-roll)
@@ -1028,8 +931,7 @@
                  (save-png width-roll height-roll path roll)
                  (return-from create-roll t))
                (progn
-                 (bt:with-lock-held (outlock)
-                   (format t "~% all the end!"))
+                 (dbg "~% all the end!")
                  (save-png width-roll height-roll path roll :grayscale)
                  (return-from create-roll t))))))))
 
@@ -1042,127 +944,103 @@
   y-point
   image-up image-down)
 
-(defun consumer (cv cv-roll task-queue-lock outlock)
-  (unless (bt:thread-alive-p (find-thread-by-name "producer-thread"))
+(defun consumer ()
+  (unless (bt:thread-alive-p (find-thread-by-name "producer"))
     (bt:destroy-thread (bt:current-thread)))
-  (bt:with-lock-held (outlock)
-    (format t "~% ~A started"
-            (bt:thread-name (bt:current-thread)))
-    (finish-output))
+  (dbg "~%~A started" (bt:thread-name (bt:current-thread)))
   (loop (let ((cur-task))
           ;; pop task to cur-task
-          (bt:with-lock-held (task-queue-lock)
-            (bt:condition-wait cv task-queue-lock)
+          (bt:with-lock-held (*task-queue-lock*)
+            (bt:condition-wait *cv-pc* *task-queue-lock*)
             (setf cur-task (pop *task-queue*)))
           (if (null cur-task)
               ;; if no task then skip step
-              (bt:with-lock-held (outlock)
-                (format t "~% ~A reported: no task in queue; skip"
-                        (bt:thread-name (bt:current-thread)))
-                (finish-output))
+              (dbg "~%~A reported: no task in queue; skip"
+                   (bt:thread-name (bt:current-thread)))
               ;; else
               (progn
-                (bt:with-lock-held (outlock)
-                  (format t "~% ~A woke up for ~A; ~A tasks left, ~A processed"
-                          (bt:thread-name (bt:current-thread))
-                          (cons (task-image-up-path cur-task)
-                                (task-image-down-path cur-task))
-                          (length *task-queue*)
-                          *task-cnt*)
-                  (finish-output))
+                (dbg "~%~A woke up for ~A; ~A tasks left"
+                     (bt:thread-name (bt:current-thread))
+                     (cons (task-image-up-path cur-task)
+                           (task-image-down-path cur-task))
+                     (length *task-queue*))
                 ;; analize task and push best results to the queue
-                (let* ((cur-results (funcall (task-fn cur-task)
-                                             (binarization (task-image-up cur-task))
-                                             (binarization (task-image-down cur-task))
-                                             (task-y-points cur-task))))
-                  ;; find best results after analize
-                  (multiple-value-bind (best-res last?)
-                    (find-best cur-results)
-                    (let ((new-result (make-result
-                                       :white (cdr (car best-res))
-                                       :black (car (car best-res))
-                                       :y-point (cdr best-res)
-                                       :image-up (task-image-up cur-task)
-                                       :image-down (task-image-down cur-task))))
-                      (bt:with-lock-held (task-queue-lock)
-                        (setf *results-queue* (append *results-queue* (list new-result))))
-                      (bt:with-lock-held (outlock)
-                        (format t " ~% thread ~A ; best-res ~A for ~A results ~A;
-                                 ~A tasks left"
-                                (bt:thread-name (bt:current-thread)) best-res
-                                (cons (task-image-up-path cur-task)
-                                      (task-image-down-path cur-task))
-                                (length *results-queue*) (length *task-queue*))))
-                    ;; was it last image?
-                    (if last?
-                        ;; yes
-                        ;; kill all threads
-                        (progn
-                          (bt:with-lock-held (outlock)
-                            (format t " ~% thread ~A: last image!"
-                                    (bt:thread-name (bt:current-thread))))
-                            (bt:with-lock-held (task-queue-lock)
-                              (bt:condition-notify cv-roll)))
-                            ;; increment thread-local task-cnt
-                            ))))))))
-
+                ;; (let* ((cur-results (funcall (task-fn cur-task)
+                ;;                              (binarization (task-image-up cur-task))
+                ;;                              (binarization (task-image-down cur-task))
+                ;;                              (task-y-points cur-task))))
+                ;;   ;; find best results after analize
+                ;;   (multiple-value-bind (best-res last?)
+                ;;       (find-best cur-results)
+                ;;     (let ((new-result (make-result
+                ;;                        :white (cdr (car best-res))
+                ;;                        :black (car (car best-res))
+                ;;                        :y-point (cdr best-res)
+                ;;                        :image-up (task-image-up cur-task)
+                ;;                        :image-down (task-image-down cur-task))))
+                ;;       (bt:with-lock-held (task-queue-lock)
+                ;;         (setf *results-queue* (append *results-queue* (list new-result))))
+                ;;       (bt:with-lock-held (outlock)
+                ;;         (dbg " ~% thread ~A ; best-res ~A for ~A results ~A;
+                ;;                     ~A tasks left"
+                ;;                 (bt:thread-name (bt:current-thread)) best-res
+                ;;                 (cons (task-image-up-path cur-task)
+                ;;                       (task-image-down-path cur-task))
+                ;;                 (length *results-queue*) (length *task-queue*))))
+                ;;     ;; was it last image?
+                ;;     (if last?
+                ;;         ;; yes
+                ;;         ;; kill all threads
+                ;;         (progn
+                ;;           (bt:with-lock-held (outlock)
+                ;;             (dbg " ~% thread ~A: last image!"
+                ;;                     (bt:thread-name (bt:current-thread))))
+                ;;           (bt:with-lock-held (*task-queue-lock*)
+                ;;             (bt:condition-notify *cv-roll*)))
+                ;;         )))
+                )))))
 
 (defun create-threads (num-of-cores)
-  (let* ((cv              (bt:make-condition-variable))
-         (cv-roll         (bt:make-condition-variable))
-         (task-queue-lock (bt:make-lock "task-queue-lock"))
-         (results-queue-lock (bt:make-lock "results-queue-lock"))
-         (outlock         (bt:make-lock "output-lock"))
-         (thread-pool))
-    (bt:make-thread (lambda ()
-                      (producer cv task-queue-lock))
-                    :name "producer-thread")
-    (bt:make-thread (lambda ()
-                      (create-roll "~/Pictures/roll.png" cv-roll outlock
-                      results-queue-lock))
-                    :name "roll-thread"
-                    :initial-bindings
-                    `((*standard-output* . ,*standard-output*)))
-    (format t "~%thread 'producer-thread' created")
-    (do ((th-idx 0 (incf th-idx)))
-        ((= th-idx (- num-of-cores 1)))
-      (format t "~%thread 'consumer~A' created" th-idx)
-      (push (bt:make-thread (lambda ()
-                              (consumer cv cv-roll task-queue-lock outlock))
-                            :name (format nil "consumer-~A" th-idx)
-                            :initial-bindings
-                            `((*standard-output* . ,*standard-output*)
-                              (*task-limit*      . ,*task-limit*)))
-            thread-pool))
-    (values thread-pool task-queue-lock outlock)))
+  (dbg "~%thread 'producer' created")
+  (bt:make-thread
+   (lambda ()
+     (producer))
+   :name "producer")
+  ;; Временно выключил, чтобы сократить поверхность отладки
+  ;; (bt:make-thread (lambda ()
+  ;;                   (create-roll "~/Pictures/roll.png"
+  ;;                                cv-roll
+  ;;                                results-queue-lock))
+  ;;                 :name "roll-thread"
+  ;;                 :initial-bindings
+  ;;                 `((*standard-output* . ,*standard-output*)))
+  ;; (dbg "~%thread 'producer-thread' created")
+  (loop :for th-idx :from 0 :to (- num-of-cores 1) :collect
+       (progn
+         (dbg "~%thread 'consumer-~A' created" th-idx)
+         (bt:make-thread
+          (lambda ()
+            (consumer))
+          :name (format nil "consumer-~A" th-idx)
+          :initial-bindings
+          `((*standard-output* . ,*standard-output*))))))
 
 ;; теперь ты можешь собрать скрины онлайн
 
-(block producer-consumers-test
-(open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-(sleep 8)
-(defparameter *clear*
-    (multiple-value-bind (thread-pool task-queue-lock outlock)
-        (create-threads 3)
-      (declare (ignore thread-pool task-queue-lock outlock))
-      (when nil
-        (print
-         (bt:all-threads))))))
+;; (block producer-consumers-test
+;;   (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
+;;   (sleep 3)
+;;   (create-threads 3))
 
-(defun producer-test ()
-(let* ((cv              (bt:make-condition-variable))
-       (task-queue-lock (bt:make-lock "task-queue-lock"))
-       (outlock         (bt:make-lock "outlock")))
-  (bt:make-thread (lambda ()
-                    (producer cv task-queue-lock))
-                  :name "producer-thread")
-  (loop
-       (if (eql (length *task-queue*) 5)
-           (progn
-           (stop-report-and-kill-producer
-            outlock "stop-report-andd-kill-producer: last image!")
-           (return-from producer-test t))))))
-
+;; (defun producer-test ()
+;;   (bt:make-thread (lambda ()
+;;                     (producer *cv-pc* *task-queue-lock* *task-queue* *outlock*))
+;;                   :name "producer-thread")
+;;   (loop
+;;      (if (eql (length *task-queue*) 5)
+;;          (progn
+;;            (stop-report-and-kill-producer "stop-report-andd-kill-producer: last image!")
+;;            (return-from producer-test t)))))
 
 ;; (block producer-test
 ;;   (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
