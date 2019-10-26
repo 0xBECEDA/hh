@@ -469,7 +469,7 @@ TRUE. Когда это произойдет поток продолжит ис�
 
 **** Fake Events
 :PROPERTIES:
-:xtest: xtest
+:xtest: xlib/xtest
 :END:
 
 NB: По какой-то странной причине (предположительно - разные версии
@@ -892,7 +892,7 @@ NB: По какой-то странной причине (предположит
     (dbg "~% ~A reported: ~A; stop"
          (bt:thread-name (bt:current-thread))
          msg)
-    (let ((producer (find-thread-by-name "producer-thread")))
+    (let ((producer (find-thread-by-name "producer")))
       (when producer
         (bt:destroy-thread producer))))
 
