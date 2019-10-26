@@ -548,7 +548,7 @@
                   (bt:thread-name (bt:current-thread)))
              )))
        ;; Теперь можно поспать, чтобы не быть слишком быстрым
-       (sleep 1))))
+       (sleep 3))))
 (in-package #:cl-autogui)
 
 (in-package #:cl-autogui)
@@ -620,7 +620,7 @@
         nil
         (destructuring-bind (height width &optional colors)
             (array-dimensions xored-image)
-          (dbg "~% y-point ~A height ~A" y-point height)
+          ;; (dbg "~% y-point ~A height ~A" y-point height)
           (let* ((intesect-height height) ;; высота пересечения
                  (white 0)
                  (black 0)
@@ -628,7 +628,7 @@
                  (pix-amount (* intesect-height width)))
             ;; высчитываем максимально допустимое количество белых пикселей
             (setf border (* (float (/ border 100)) pix-amount))
-            (dbg "~% intesect-height ~A " intesect-height)
+            ;;(dbg "~% intesect-height ~A " intesect-height)
             ;; если картинки full-color
             (if colors
                 (do ((qy y-point (incf qy)))
@@ -848,7 +848,7 @@
                ;; сохранить лучший результат с максимально низким y-point
                ;; так можно будет склеить картинки максимально правильно,
                ;;а не срезать половину
-               (setf best-res (nth i sorted-result))
+               ;;(setf best-res (nth i sorted-result))
                ;; и при этом y-point = 0
                (if (eql cur-y 0)
                    ;; мы нашли последнюю пару картинок
@@ -882,15 +882,16 @@
 ;;           (array-dimensions app-arr)
 ;;         (save-png width height "~/Pictures/area.png" app-arr :grayscale)))))
 
-(defun create-roll (path own-cv results-queue-lock)
+(defun create-roll (path)
   (loop
-     (bt:with-lock-held (results-queue-lock)
+     (bt:with-lock-held (*results-queue-lock*)
        ;; wait for access
-       (bt:condition-wait own-cv results-queue-lock)
+       (bt:condition-wait *cv-roll* *results-queue-lock*)
        (dbg "~% create roll is woke")
        ;; если все сработает верно, то управление в эту строку
        ;; попадет только 1 раз, поэтому не будет попытки удалить несуществующие потоки
-       (stop-report-and-kill-producer "stop-report-andd-kill-producer: last image!")
+       (stop-report-and-kill-producer
+        "stop-report-andd-kill-producer: last image!")
        (kill-all-consumers "kill-all-consumers: last image!")
        (dbg "~% all threads are killed")
        ;; take first img-pair
@@ -928,6 +929,7 @@
              (array-dimensions roll)
            (if colors-roll
                (progn
+                 (dbg "~% all the end!")
                  (save-png width-roll height-roll path roll)
                  (return-from create-roll t))
                (progn
@@ -965,39 +967,37 @@
                            (task-image-down-path cur-task))
                      (length *task-queue*))
                 ;; analize task and push best results to the queue
-                ;; (let* ((cur-results (funcall (task-fn cur-task)
-                ;;                              (binarization (task-image-up cur-task))
-                ;;                              (binarization (task-image-down cur-task))
-                ;;                              (task-y-points cur-task))))
-                ;;   ;; find best results after analize
-                ;;   (multiple-value-bind (best-res last?)
-                ;;       (find-best cur-results)
-                ;;     (let ((new-result (make-result
-                ;;                        :white (cdr (car best-res))
-                ;;                        :black (car (car best-res))
-                ;;                        :y-point (cdr best-res)
-                ;;                        :image-up (task-image-up cur-task)
-                ;;                        :image-down (task-image-down cur-task))))
-                ;;       (bt:with-lock-held (task-queue-lock)
-                ;;         (setf *results-queue* (append *results-queue* (list new-result))))
-                ;;       (bt:with-lock-held (outlock)
-                ;;         (dbg " ~% thread ~A ; best-res ~A for ~A results ~A;
-                ;;                     ~A tasks left"
-                ;;                 (bt:thread-name (bt:current-thread)) best-res
-                ;;                 (cons (task-image-up-path cur-task)
-                ;;                       (task-image-down-path cur-task))
-                ;;                 (length *results-queue*) (length *task-queue*))))
-                ;;     ;; was it last image?
-                ;;     (if last?
-                ;;         ;; yes
-                ;;         ;; kill all threads
-                ;;         (progn
-                ;;           (bt:with-lock-held (outlock)
-                ;;             (dbg " ~% thread ~A: last image!"
-                ;;                     (bt:thread-name (bt:current-thread))))
-                ;;           (bt:with-lock-held (*task-queue-lock*)
-                ;;             (bt:condition-notify *cv-roll*)))
-                ;;         )))
+                (let* ((cur-results (funcall (task-fn cur-task)
+                                             (binarization (task-image-up cur-task))
+                                             (binarization (task-image-down cur-task))
+                                             (task-y-points cur-task))))
+                  ;; find best results after analize
+                  (multiple-value-bind (best-res last?)
+                      (find-best cur-results)
+                    (let ((new-result (make-result
+                                       :white (cdr (car best-res))
+                                       :black (car (car best-res))
+                                       :y-point (cdr best-res)
+                                       :image-up (task-image-up cur-task)
+                                       :image-down (task-image-down cur-task))))
+                      (bt:with-lock-held (*task-queue-lock*)
+                        (setf *results-queue* (append *results-queue* (list new-result))))
+                        (dbg " ~% thread ~A ; best-res ~A for ~A results ~A;
+                                    ~A tasks left"
+                                (bt:thread-name (bt:current-thread)) best-res
+                                (cons (task-image-up-path cur-task)
+                                      (task-image-down-path cur-task))
+                                (length *results-queue*) (length *task-queue*)))
+                    ;; was it last image?
+                    (if last?
+                        ;; yes
+                        ;; kill all threads
+                        (progn
+                            (dbg " ~% thread ~A: last image!"
+                                    (bt:thread-name (bt:current-thread)))
+                          (bt:with-lock-held (*task-queue-lock*)
+                            (bt:condition-notify *cv-roll*)))
+                        )))
                 )))))
 
 (defun create-threads (num-of-cores)
@@ -1007,25 +1007,29 @@
      (producer))
    :name "producer")
   ;; Временно выключил, чтобы сократить поверхность отладки
-  ;; (bt:make-thread (lambda ()
-  ;;                   (create-roll "~/Pictures/roll.png"
-  ;;                                cv-roll
-  ;;                                results-queue-lock))
-  ;;                 :name "roll-thread"
-  ;;                 :initial-bindings
-  ;;                 `((*standard-output* . ,*standard-output*)))
-  ;; (dbg "~%thread 'producer-thread' created")
-  (loop :for th-idx :from 0 :to (- num-of-cores 1) :collect
-       (progn
-         (dbg "~%thread 'consumer-~A' created" th-idx)
-         (bt:make-thread
-          (lambda ()
-            (consumer))
-          :name (format nil "consumer-~A" th-idx)
-          :initial-bindings
-          `((*standard-output* . ,*standard-output*))))))
+  (bt:make-thread (lambda ()
+                    (create-roll "~/Pictures/roll.png"))
+                  :name "roll-thread"
+                  :initial-bindings
+                  `((*standard-output* . ,*standard-output*)))
+  (dbg "~%thread 'producer-thread' created")
+  (loop :for
+     th-idx :from 0 :to (- num-of-cores 1) :collect
+     (progn
+       (dbg "~%thread 'consumer-~A' created" th-idx)
+       (bt:make-thread
+        (lambda ()
+          (consumer))
+        :name (format nil "consumer-~A" th-idx)
+        :initial-bindings
+        `((*standard-output* . ,*standard-output*))))))
 
 ;; теперь ты можешь собрать скрины онлайн
+;; Функция бесконечно работает + тратит больше времени на склейку.
+;; По достижении конца страницы выдачи надо ждать дольше, чтоб ролл склеился правильно.
+;; Но даже после этого скрины новые появляются, пэйдждаун работает.
+;; Причина ошибки не найдена
+
 
 ;; (block producer-consumers-test
 ;;   (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
