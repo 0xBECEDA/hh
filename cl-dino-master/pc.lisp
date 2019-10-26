@@ -289,7 +289,7 @@
 (defun x-move (x y)
   (if (and (integerp x) (integerp y))
       (with-default-display-force (d)
-        (xlib/xtest:fake-motion-event d x y))
+        (xtest:fake-motion-event d x y))
       (error "Integer only for position, (x: ~S, y: ~S)" x y)))
 
 (defun mklist (obj)
@@ -349,11 +349,11 @@
 (defun perform-mouse-action (press? button &key x y)
   (and x y (x-move x y))
   (with-default-display-force (d)
-    (xlib/xtest:fake-button-event d button press?)))
+    (xtest:fake-button-event d button press?)))
 
 (defun perform-key-action (press? keycode) ; use xev to get keycode
   (with-default-display-force (d)
-    (xlib/xtest:fake-key-event d keycode press?)))
+    (xtest:fake-key-event d keycode press?)))
 
 ;; (block perform-key-action-test
 ;;   (perform-key-action t 116)
@@ -466,7 +466,7 @@
     result))
 
 ;; (in-package  #:cl-autogui)
-;; 
+;;
 ;; (block save-load-binarixation-test
 ;;   (x-snapshot :x 440 :width  *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -476,7 +476,7 @@
 ;;         (array-dimensions image)
 ;;       (save-png dw dh "~/Pictures/test-bin.png"
 ;;                image  :grayscale))))
-;; 
+;;
 ;; (block save-load-full-color-test
 ;;   (x-snapshot :x 440 :width *snap-width*
 ;;               :path "~/Pictures/test.png")
@@ -1033,7 +1033,10 @@
 
 ;; (block producer-consumers-test
 ;;   (open-browser "/usr/bin/firefox" "https://spb.hh.ru/")
-;;   (sleep 3)
+;;   (sleep 5)
+;;   (perform-mouse-action t *mouse-left* :x (/ *default-width* 2) :y 0)
+;;   (sleep .1)
+;;   (perform-mouse-action nil *mouse-left* :x (/ *default-width* 2) :y 0)
 ;;   (create-threads 3))
 
 ;; (defun producer-test ()
